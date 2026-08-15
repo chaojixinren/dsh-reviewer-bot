@@ -99,7 +99,7 @@ examples/                workflow 模板
 
 ## Star 历史
 
-[![Star History Chart](https://api.star-history.com/svg?repos=chaojixinren/dsh-reviewer-bot&type=Date)](https://star-history.com/#chaojixinren/dsh-reviewer-bot&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=chaojixinren/dsh-reviewer-bot&type=Date)](https://www.star-history.com/?type=date&repos=chaojixinren%2Fdsh-reviewer-bot)
 
 ## 许可
 
