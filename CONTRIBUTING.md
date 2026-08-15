@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M2（规则与本地化）进行中** 阶段：M1 只读评审闭环已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`）。M2 交付规则注册与本地反馈闭环：`rule-registry` + `rules-baseline` 让规则变成可注册、可审计的数据，`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）与 `forge-local` 让调规则、调提示词不必推 PR 等 CI。
+项目处于 **M2（规则与本地化）进行中** 阶段：M1 只读评审闭环已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`）。M2 交付规则注册与本地反馈闭环：`rule-registry` + `rules-baseline` 让规则变成可注册、可审计的数据，`forge-local` 提供本地 git provider 支撑离线 dry-run；`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）仍在开发中，落地后调规则、调提示词就不必推 PR 等 CI。
 
 动手前请先读：
 

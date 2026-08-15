@@ -158,6 +158,8 @@ flowchart LR
 
 M0 与 M1 均已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）；只读评审闭环全部合入 `main`（PR #13–#19）。
 
-已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 10 个测试文件、264 例单测全绿。
+M2 进行中，已交付 3/4：`rule-registry`（`reviewRules` 服务与规则包注册表，PR #29）、`rules-baseline`（基线规则包，PR #30）、`forge-local`（本地 git provider，离线 dry-run，PR #28）。
 
-未实现（刻意）：M2 的 `rule-registry`（`reviewRules` 服务注册）、`rules-baseline`（基线规则包注册）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）、`forge-local` 仍为脚手架占位；M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 同样未实现。下一步进入 M2：`rule-registry`（#22）→ `rules-baseline`（#23）/ `driver-cli`（#25），`forge-local`（#24）与之并行。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 13 个测试文件、322 例单测全绿。
+
+未实现（刻意）：M2 的 `driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）仍为脚手架占位；M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 同样未实现。下一步完成 M2 收尾：`driver-cli`（#25）。
