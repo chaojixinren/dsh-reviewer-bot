@@ -162,12 +162,20 @@ export interface Failure {
   readonly retryable: boolean
 }
 
+export type ValidationEnforcement = 'full' | 'partial'
+
 export interface ValidationReport {
   readonly ran: boolean
   /** Commands as argv arrays — never shell strings. See docs/04-trust-model.md T3. */
   readonly commands: readonly (readonly string[])[]
   readonly passed: boolean
   readonly exitCodes: readonly number[]
+  /** Per-command sandbox execution completeness, consumed from `ConfinedArgv.enforcement`. */
+  readonly enforcement: readonly ValidationEnforcement[]
+  /** Denial signatures matched by the sandbox, consumed from `ConfinedArgv.denialSignatures`. */
+  readonly denials: readonly string[]
+  /** Full merged output of the validation subprocesses, posted back on failure. */
+  readonly log: string
 }
 
 export interface WriteResult {

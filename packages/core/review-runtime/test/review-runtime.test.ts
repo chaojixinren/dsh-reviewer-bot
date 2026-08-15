@@ -1,24 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
 import type {
-  Failure, Finding, NormalizedEvent, RawProposal, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget,
+  Failure, Finding, NormalizedEvent, Patch, RawProposal, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget,
 } from '@dshrb/review-core'
 import { createForgeRegistry } from '@dshrb/forge'
 import type {
   ActorResolver, BotIdentity, CheckReader, CheckRun, CommentSink, DiffSource, ForgePermission,
-  ForgeRegistry, PublishStats, UnifiedDiff,
+  ForgeRegistry, MutationSink, PublishStats, UnifiedDiff,
 } from '@dshrb/forge'
 import type { Rule } from '@dshrb/rule-registry'
 import { createTrustPolicy } from '@dshrb/trust-policy'
 import type { TrustPolicy } from '@dshrb/trust-policy'
 import type { FsPathInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
-import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
   applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
-  deriveReplayId, ingest, mutate, narrowPatches, parseReplaySnapshot, renderDiagnoseContext, report, route,
-  runReview, shardDiff, SNAPSHOT_VERSION, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
+  buildValidationEnv, classifyConfinedRun, deriveReplayId, ingest, mutate, narrowPatches, parseReplaySnapshot,
+  renderDiagnoseContext, report, route, runReview, runValidationCommands, shardDiff, SNAPSHOT_VERSION,
+  toConfinedPolicy, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog, writeBranchName,
 } from '../src/index.ts'
-import type { AgentOutput, Config, ReplaySnapshot, StageDeps, WriteFs } from '../src/index.ts'
+import type { AgentOutput, CommandOutcome, Config, ReplaySnapshot, StageDeps, WriteFs } from '../src/index.ts'
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -57,9 +58,9 @@ function checkRunFixture(over: Partial<CheckRun> = {}): CheckRun {
 }
 
 /** One provider object answers every capability, as a real forge gateway does. */
-interface FakeGateway extends ActorResolver, DiffSource, CommentSink, CheckReader {}
+interface FakeGateway extends ActorResolver, DiffSource, CommentSink, CheckReader, MutationSink {}
 
-const FULL_CAPABILITIES = ['actor-resolver', 'diff-source', 'comment-sink', 'inline-comments', 'check-reader'] as const
+const FULL_CAPABILITIES = ['actor-resolver', 'diff-source', 'comment-sink', 'inline-comments', 'check-reader', 'mutation-sink'] as const
 
 function gatewayFixture(over: Partial<FakeGateway> = {}): ForgeRegistry {
   const registry = createForgeRegistry()
@@ -77,6 +78,8 @@ function gatewayFixture(over: Partial<FakeGateway> = {}): ForgeRegistry {
     findStickyComment: async () => undefined,
     listFailedChecks: async (): Promise<readonly CheckRun[]> => [checkRunFixture()],
     fetchLog: async () => 'job failed: null pointer dereference',
+    commitPatches: async () => commitSha('c'.repeat(40)),
+    openPullRequest: async () => 'pr://local',
     ...over,
   }
   registry.register(gateway)
@@ -121,6 +124,8 @@ function configFixture(over: Partial<Config> = {}): Config {
     snapshotReplay: true,
     allowWrite: false,
     minSeverity: 'minor',
+    testCommands: [],
+    validationEnv: [],
     ...over,
   }
 }
@@ -590,7 +595,8 @@ describe('mutate', () => {
     const write = await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], deps)
 
     expect(write.appliedPatches).toHaveLength(1)
-    expect(write.validation).toEqual({ ran: false, commands: [], passed: true, exitCodes: [] })
+    expect(write.validation).toEqual({ ran: false, commands: [], passed: true, exitCodes: [], enforcement: [], denials: [], log: '' })
+    expect(write.commitSha).toBe('c'.repeat(40))
     expect(writes).toHaveLength(1)
     expect(writes[0]?.content).toBe('A\n')
     expect(writes[0]?.policy).toEqual(WORKSPACE_POLICY)
@@ -648,6 +654,178 @@ describe('mutate', () => {
     const request = await writeRequestFixture()
     await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }], depsFixture()))
       .rejects.toThrow(/ctx\.fs/)
+  })
+})
+
+// --- validation gate + commit gate (#35) ------------------------------------
+
+function confinedFixture(over: Partial<ConfinedArgv> = {}): ConfinedArgv {
+  return {
+    argv: ['runner', '--', 'pnpm', 'lint'],
+    enforcement: 'full',
+    denialSignatures: ['PERMISSION DENIED'],
+    runnerFailureRules: [],
+    ...over,
+  }
+}
+
+interface CommitFixture {
+  readonly deps: StageDeps
+  readonly commits: { repo: string; branch: string; patches: readonly Patch[]; message: string }[]
+  readonly comments: string[]
+  readonly confineCalls: (readonly string[])[]
+}
+
+/** A mutate-ready fixture: fs apply + confined validation + commit sink. */
+function commitFixture(over: {
+  runOutcome?: CommandOutcome
+  commit?: (c: { repo: string; branch: string; patches: readonly Patch[]; message: string }) => Promise<ReturnType<typeof commitSha>>
+  commands?: readonly (readonly string[])[]
+} = {}): CommitFixture {
+  const commits: CommitFixture['commits'] = []
+  const comments: string[] = []
+  const confineCalls: (readonly string[])[] = []
+  const forges = gatewayFixture({
+    createComment: async (_target, body) => {
+      comments.push(body)
+      return commentId('c-1')
+    },
+    commitPatches: async (repo, branch, patches, message) => {
+      if (over.commit !== undefined) {
+        return over.commit({ repo, branch, patches, message })
+      }
+      commits.push({ repo, branch, patches, message })
+      return commitSha('c'.repeat(40))
+    },
+  })
+  const deps: StageDeps = depsFixture({
+    forges,
+    fs: writeFsFixture({
+      lstat: async (path) => (path === 'src/a.ts' ? { version: undefined, type: 'file' } as unknown as FsPathInfo : undefined),
+      readText: async () => 'a\n',
+      writeText: async (_target, content) => ({ operation: 'update', version: undefined, before: 'a\n', after: content }) as unknown as FsWriteOutcome,
+    }),
+    sandboxPolicy: () => WORKSPACE_POLICY,
+    confine: (argv) => {
+      confineCalls.push(argv)
+      return confinedFixture({ argv: ['runner', ...argv] })
+    },
+    runConfinedCommand: async () => over.runOutcome ?? { exitCode: 0, stdout: '', stderr: '' },
+    validation: {
+      commands: over.commands ?? [['pnpm', 'lint']],
+      envAllowlist: ['PATH'],
+      hostEnv: () => ({ PATH: '/usr/bin', SECRET: 's3cr3t' }),
+    },
+  })
+  return { deps, commits, comments, confineCalls }
+}
+
+describe('write mode helpers', () => {
+  it('buildValidationEnv forwards only the allowlisted names', () => {
+    const env = buildValidationEnv({ PATH: '/usr/bin', SECRET: 's3cr3t', NODE_ENV: 'test' }, ['PATH'])
+    expect(env).toEqual({ PATH: '/usr/bin' })
+    expect('SECRET' in env).toBe(false)
+  })
+
+  it('toConfinedPolicy narrows danger-full-access to workspace-write', () => {
+    expect(toConfinedPolicy({ mode: 'danger-full-access', workspaceRoot: '/w' }).mode).toBe('workspace-write')
+    expect(toConfinedPolicy({ mode: 'read-only', workspaceRoot: '/w' }).mode).toBe('read-only')
+  })
+
+  it('classifyConfinedRun consumes denial and runner-failure evidence', () => {
+    const confined = confinedFixture()
+    expect(classifyConfinedRun(confined, { exitCode: 0, stdout: '', stderr: '' }).disposition).toBe('passed')
+    expect(classifyConfinedRun(confined, { exitCode: 1, stdout: '', stderr: 'write PERMISSION DENIED' }).disposition).toBe('denied')
+    expect(classifyConfinedRun(confined, { exitCode: 1, stdout: '', stderr: 'tool exited' }).disposition).toBe('command-failed')
+    const runnerConfined = confinedFixture({
+      runnerFailureRules: [{ fatalSignatures: ['runner crashed'], informationalLines: ['benign'] }],
+    })
+    expect(classifyConfinedRun(runnerConfined, { exitCode: 1, stdout: '', stderr: 'runner crashed' }).disposition).toBe('runner-failed')
+  })
+
+  it('writeBranchName produces a stable fix branch', () => {
+    expect(writeBranchName(requestId('r-1'))).toBe('dshrb-fix/r-1')
+  })
+
+  it('runValidationCommands passes argv verbatim and reports enforcement/denials', async () => {
+    const seen: (readonly string[])[] = []
+    const report = await runValidationCommands(
+      [['pnpm', 'lint', 'a;rm -rf b/c.ts']],
+      ['PATH'],
+      () => ({ PATH: '/usr/bin', SECRET: 'x' }),
+      {
+        confine: (argv, _policy) => {
+          seen.push(argv)
+          return confinedFixture({ argv: ['runner', ...argv] })
+        },
+        resolvePolicy: () => WORKSPACE_POLICY,
+        run: async (_confined, cwd, env) => {
+          expect(cwd).toBe('/work')
+          expect('SECRET' in env).toBe(false)
+          return { exitCode: 1, stdout: '', stderr: 'PERMISSION DENIED' }
+        },
+      },
+    )
+    expect(report.passed).toBe(false)
+    expect(report.enforcement).toEqual(['full'])
+    expect(report.denials).toEqual(['PERMISSION DENIED'])
+    expect(report.log).toContain('a;rm -rf b/c.ts')
+    expect(seen).toEqual([['pnpm', 'lint', 'a;rm -rf b/c.ts']])
+  })
+})
+
+describe('mutate commit gate', () => {
+  it('commits with the applied patches when validation passes', async () => {
+    const fixture = commitFixture()
+    const request = await writeRequestFixture()
+    const write = await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], fixture.deps)
+    expect(write.commitSha).toBe('c'.repeat(40))
+    expect(write.validation.passed).toBe(true)
+    expect(fixture.commits).toHaveLength(1)
+    expect(fixture.commits[0]?.branch).toBe(`dshrb-fix/${request.requestId}`)
+    expect(fixture.commits[0]?.patches).toEqual([{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }])
+  })
+
+  it('posts the full log and does not commit when validation fails', async () => {
+    const fixture = commitFixture({ runOutcome: { exitCode: 1, stdout: 'fail', stderr: 'boom' } })
+    const request = await writeRequestFixture()
+    const write = await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], fixture.deps)
+    expect(write.commitSha).toBeUndefined()
+    expect(write.validation.passed).toBe(false)
+    expect(fixture.commits).toHaveLength(0)
+    expect(fixture.comments).toHaveLength(1)
+    expect(fixture.comments[0]).toContain('validation failed')
+    expect(fixture.comments[0]).toContain('boom')
+  })
+
+  it('treats an empty changeset as nothing-to-commit, not a failure', async () => {
+    const fixture = commitFixture({
+      commit: async () => {
+        const error = new Error('no changes') as Error & { code: string }
+        error.code = 'E_NO_CHANGES'
+        throw error
+      },
+    })
+    const request = await writeRequestFixture()
+    const write = await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], fixture.deps)
+    expect(write.commitSha).toBeUndefined()
+    expect(write.appliedPatches).toEqual([])
+    expect(write.validation.passed).toBe(true)
+  })
+
+  it('runs validation with the exact argv (never a shell string)', async () => {
+    const fixture = commitFixture({ commands: [['pnpm', 'lint', 'a;rm -rf b/c.ts']] })
+    const request = await writeRequestFixture()
+    await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], fixture.deps)
+    expect(fixture.confineCalls).toEqual([['pnpm', 'lint', 'a;rm -rf b/c.ts']])
+  })
+
+  it('fails closed when validation commands are configured but confinement is missing', async () => {
+    const fixture = commitFixture()
+    const request = await writeRequestFixture()
+    const { confine: _omit, ...depsWithoutConfine } = fixture.deps
+    await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], depsWithoutConfine))
+      .rejects.toThrow(/confinement/)
   })
 })
 
@@ -727,6 +905,41 @@ describe('runReview', () => {
     expect(result.verdict.findingsCount).toBe(1)
     expect(result.publication?.published).toBe(1)
     expect(result.summary).toBeTruthy()
+  })
+
+  it('reports failed when the write-mode validation gate blocks the commit', async () => {
+    const deps = depsFixture({
+      allowWrite: true,
+      trustPolicy: createTrustPolicy({ allowWrite: true, protectedPaths: [] }),
+      fs: writeFsFixture({
+        lstat: async (path) => (path === 'src/a.ts' ? { version: undefined, type: 'file' } as unknown as FsPathInfo : undefined),
+        readText: async () => 'a\n',
+        writeText: async (_target, content) => ({ operation: 'update', version: undefined, before: 'a\n', after: content }) as unknown as FsWriteOutcome,
+      }),
+      sandboxPolicy: () => WORKSPACE_POLICY,
+      confine: (argv) => confinedFixture({ argv: ['runner', ...argv] }),
+      runConfinedCommand: async () => ({ exitCode: 1, stdout: 'fail', stderr: 'boom' }),
+      validation: {
+        commands: [['pnpm', 'lint']],
+        envAllowlist: ['PATH'],
+        hostEnv: () => ({ PATH: '/usr/bin' }),
+      },
+      runAgent: async () => ({
+        proposals: [validProposal()],
+        patches: [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }],
+      }),
+    })
+    const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
+    // The gate blocked the commit: the run must not report success (the Action
+    // `conclusion` would then show a green check for a fix that never landed).
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.code).toBe('E_VALIDATION_FAILED')
+    expect(result.failure?.phase).toBe('mutate')
+    expect(result.write?.validation.passed).toBe(false)
+    expect(result.write?.commitSha).toBeUndefined()
+    // Findings already reached the forge; a blocked write must not erase them.
+    expect(result.findings).toHaveLength(1)
+    expect(result.publication?.published).toBe(1)
   })
 
   it('denies an intent whose trust is below the minimum and never publishes (gate denied)', async () => {

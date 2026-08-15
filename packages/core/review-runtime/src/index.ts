@@ -8,17 +8,18 @@
  * `runAgent` seam so every other stage stays deterministic in tests.
  */
 import { createHash } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
 import { countBlockers, findingId, findingInvariantViolation, isSafeRelativePath, meetsSeverityThreshold } from '@dshrb/review-core'
 import { narrowPatchProposal, narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, DiscardedProposal, Failure, Finding, IsolationProfile, NormalizedEvent, Patch,
   Phase, RawPatch, RawProposal, RequestId, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
-  RulePackSummary, Severity, WriteResult,
+  RulePackSummary, Severity, ValidationEnforcement, ValidationReport, WriteResult,
 } from '@dshrb/review-core'
 import { createAnchorResolver, publishIdempotencyKey } from '@dshrb/forge'
 import type {
-  ActorResolver, CheckReader, CommentSink, DiffSource, ForgeRegistry, PublishStats, UnifiedDiff,
+  ActorResolver, CheckReader, CommentSink, DiffSource, ForgeRegistry, MutationSink, PublishStats, UnifiedDiff,
 } from '@dshrb/forge'
 import type { Rule } from '@dshrb/rule-registry'
 import type { ReviewToolContext } from '@dshrb/tool-review'
@@ -27,12 +28,12 @@ import type { ActorContext, TrustPolicy } from '@dshrb/trust-policy'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsPathInfo, FsTarget, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'dshrb-review-runtime'
-export const inject = ['agents', 'sessions', 'tools', 'reviewRules', 'forges', 'trustPolicy', 'reviewTools', 'fs', 'sandboxPolicy']
+export const inject = ['agents', 'sessions', 'tools', 'reviewRules', 'forges', 'trustPolicy', 'reviewTools', 'fs', 'sandboxPolicy', 'sandbox']
 
 export interface Config {
   /** Watchdog budget. Keep the job-level timeout a few minutes above this so
@@ -51,6 +52,15 @@ export interface Config {
   allowWrite: boolean
   /** Lowest severity to publish. */
   minSeverity: Severity
+  /**
+   * Validation commands run as the commit gate for `@dsr fix`. Each entry is an
+   * exact argv array (program + arguments) — never a shell string, so a path
+   * containing shell metacharacters is passed verbatim. See docs/04 T3.
+   */
+  testCommands: string[][]
+  /** Env var names forwarded to validation subprocesses. Explicit whitelist:
+   *  anything not listed is stripped, so a newly added secret cannot leak. */
+  validationEnv: string[]
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -60,6 +70,8 @@ export const Config: Schema<Config> = Schema.object({
   snapshotReplay: Schema.boolean().default(true),
   allowWrite: Schema.boolean().default(false),
   minSeverity: Schema.union(['blocker', 'major', 'minor', 'nit', 'info'] as const).default('minor'),
+  testCommands: Schema.array(Schema.array(Schema.string())).default([]),
+  validationEnv: Schema.array(Schema.string()).default([]),
 })
 
 /** One failed CI check the `diagnose` intent reads logs for. */
@@ -124,6 +136,20 @@ export interface StageDeps {
    */
   readonly sandboxPolicy?: SandboxPolicyService['resolve']
   /**
+   * Confine an exact argv under a policy — `ctx.sandbox.confine` (docs/04 T3).
+   * Absent → the mutate stage fails closed rather than spawning an unconfined
+   * validation subprocess.
+   */
+  readonly confine?: (argv: readonly string[], policy: SandboxPolicy) => ConfinedArgv
+  /**
+   * Spawn a confined argv and capture its outcome. Injected so the validation
+   * gate is unit-testable without forking a subprocess; the production binding
+   * runs the wrapped argv through `node:child_process`.
+   */
+  readonly runConfinedCommand?: (confined: ConfinedArgv, cwd: string, env: NodeJS.ProcessEnv) => Promise<CommandOutcome>
+  /** Validation command set plus the env whitelist the commit gate enforces. */
+  readonly validation?: ValidationDeps
+  /**
    * The one non-deterministic stage, injected so tests stay offline. Returns
    * review findings plus write-mode patch proposals.
    */
@@ -158,6 +184,23 @@ export interface WriteFs {
     target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal,
     sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsWriteOutcome>
+}
+
+/** Validation commands and the env whitelist applied to their subprocesses. */
+export interface ValidationDeps {
+  /** Exact argv arrays (program + arguments), never shell strings. */
+  readonly commands: readonly (readonly string[])[]
+  /** Env var names forwarded; anything else is stripped from the child env. */
+  readonly envAllowlist: readonly string[]
+  /** Source environment the whitelist selects from (the controller's process). */
+  readonly hostEnv: () => NodeJS.ProcessEnv
+}
+
+/** The captured result of one confined validation command. */
+export interface CommandOutcome {
+  readonly exitCode: number
+  readonly stdout: string
+  readonly stderr: string
 }
 
 // --- Shared helpers ---------------------------------------------------------
@@ -861,17 +904,209 @@ function isolationProfile(deps: StageDeps): IsolationProfile {
 }
 
 /**
+ * Stable error code a MutationSink throws when the patches it applied left the
+ * working tree unchanged. The mutate stage maps it to "nothing to commit"
+ * rather than a write failure, satisfying the empty-changeset gate
+ * (docs/03-review-pipeline.md). forge-local and forge-github both throw errors
+ * carrying this code.
+ */
+const NO_CHANGES_CODE = 'E_NO_CHANGES'
+
+/** Cap per-command output captured by the production spawn runner. */
+const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024
+
+/** Cap the validation log body posted as a comment, to respect forge size limits. */
+const COMMENT_LOG_CAP = 60_000
+
+/** Machine-readable disposition of one validation command run. */
+export type RunDisposition = 'passed' | 'command-failed' | 'denied' | 'runner-failed'
+
+/** The classified outcome of one confined command, consuming ConfinedArgv evidence. */
+export interface ClassifiedRun {
+  readonly disposition: RunDisposition
+  readonly matchedDenial: string | undefined
+  readonly matchedRunnerFailure: string | undefined
+}
+
+/**
+ * Narrows a resolved policy so validation never runs under `danger-full-access`:
+ * `ctx.sandbox` is an argv wrapper whose contract only confines `read-only` and
+ * `workspace-write`, and a validation subprocess must never be spawned
+ * unconfined. `danger-full-access` (an approved escalation elsewhere) degrades
+ * to `workspace-write` here.
+ */
+export function toConfinedPolicy(policy: SandboxExecutionPolicy): SandboxPolicy {
+  return {
+    ...policy,
+    mode: policy.mode === 'danger-full-access' ? 'workspace-write' : policy.mode,
+  }
+}
+
+/**
+ * Builds the child env from the allowlist only — everything else is stripped.
+ * This is a whitelist, not a denylist: a newly added secret on the host env is
+ * invisible to the validation subprocess unless explicitly listed (docs/04 T11).
+ */
+export function buildValidationEnv(hostEnv: NodeJS.ProcessEnv, allowlist: readonly string[]): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const name of allowlist) {
+    const value = hostEnv[name]
+    if (value !== undefined) {
+      env[name] = value
+    }
+  }
+  return env
+}
+
+function containsSignature(lines: readonly string[], signature: string): boolean {
+  const needle = signature.toLowerCase()
+  return lines.some((line) => line.toLowerCase().includes(needle))
+}
+
+/**
+ * Consumes a ConfinedArgv's runner-failure rules and denial signatures so they
+ * are never silently dropped: a non-zero exit is classified as runner-failure,
+ * sandbox denial, or a genuine command failure, in that precedence order (per
+ * `RunnerFailureRule` — runner failure means the command never ran, while a
+ * denial means confinement worked and blocked it).
+ */
+export function classifyConfinedRun(confined: ConfinedArgv, outcome: CommandOutcome): ClassifiedRun {
+  if (outcome.exitCode === 0) {
+    return { disposition: 'passed', matchedDenial: undefined, matchedRunnerFailure: undefined }
+  }
+  const informational = new Set(
+    confined.runnerFailureRules
+      .flatMap((rule) => rule.informationalLines ?? [])
+      .map((line) => line.toLowerCase()),
+  )
+  const remaining = outcome.stderr.split(/\r?\n/u)
+    .filter((line) => !informational.has(line.toLowerCase()))
+
+  for (const rule of confined.runnerFailureRules) {
+    if (rule.allowedExitCodes !== undefined && !rule.allowedExitCodes.includes(outcome.exitCode)) {
+      continue
+    }
+    const matched = rule.fatalSignatures.find((signature) => containsSignature(remaining, signature))
+    if (matched !== undefined) {
+      return { disposition: 'runner-failed', matchedDenial: undefined, matchedRunnerFailure: matched }
+    }
+  }
+  const denial = confined.denialSignatures.find((signature) => containsSignature(remaining, signature))
+  if (denial !== undefined) {
+    return { disposition: 'denied', matchedDenial: denial, matchedRunnerFailure: undefined }
+  }
+  return { disposition: 'command-failed', matchedDenial: undefined, matchedRunnerFailure: undefined }
+}
+
+function renderCommandLog(
+  command: readonly string[], confined: ConfinedArgv, outcome: CommandOutcome, classified: ClassifiedRun,
+): string {
+  const lines = [
+    // JSON-encoded so a path with shell metacharacters is displayed verbatim,
+    // never interpreted.
+    `$ ${command.map((part) => JSON.stringify(part)).join(' ')}`,
+    `exit=${String(outcome.exitCode)} enforcement=${confined.enforcement}`,
+  ]
+  if (classified.matchedRunnerFailure !== undefined) {
+    lines.push(`runner-failed: matched signature ${JSON.stringify(classified.matchedRunnerFailure)}`)
+  }
+  if (classified.matchedDenial !== undefined) {
+    lines.push(`denied: matched signature ${JSON.stringify(classified.matchedDenial)}`)
+  }
+  if (outcome.stdout !== '') {
+    lines.push(outcome.stdout.trimEnd())
+  }
+  if (outcome.stderr !== '') {
+    lines.push(outcome.stderr.trimEnd())
+  }
+  return lines.join('\n')
+}
+
+/** The injectable runner shape `runValidationCommands` needs to stay offline-testable. */
+export interface ValidationRunner {
+  readonly confine: (argv: readonly string[], policy: SandboxPolicy) => ConfinedArgv
+  readonly resolvePolicy: () => SandboxExecutionPolicy
+  readonly run: (confined: ConfinedArgv, cwd: string, env: NodeJS.ProcessEnv) => Promise<CommandOutcome>
+}
+
+/** Runs every validation command confined, reporting per-command evidence. */
+export async function runValidationCommands(
+  commands: readonly (readonly string[])[], envAllowlist: readonly string[], hostEnv: () => NodeJS.ProcessEnv,
+  runner: ValidationRunner,
+): Promise<ValidationReport> {
+  if (commands.length === 0) {
+    return { ran: false, commands, passed: true, exitCodes: [], enforcement: [], denials: [], log: '' }
+  }
+  const policy = toConfinedPolicy(runner.resolvePolicy())
+  const env = buildValidationEnv(hostEnv(), envAllowlist)
+  const exitCodes: number[] = []
+  const enforcement: ValidationEnforcement[] = []
+  const denials: string[] = []
+  const logChunks: string[] = []
+  let passed = true
+
+  for (const command of commands) {
+    const confined = runner.confine(command, policy)
+    const outcome = await runner.run(confined, policy.workspaceRoot, env)
+    const classified = classifyConfinedRun(confined, outcome)
+    exitCodes.push(outcome.exitCode)
+    enforcement.push(confined.enforcement)
+    if (classified.matchedDenial !== undefined) {
+      denials.push(classified.matchedDenial)
+    }
+    if (classified.disposition !== 'passed') {
+      passed = false
+    }
+    logChunks.push(renderCommandLog(command, confined, outcome, classified))
+  }
+
+  return {
+    ran: true,
+    commands,
+    passed,
+    exitCodes,
+    enforcement,
+    denials,
+    log: logChunks.join('\n\n'),
+  }
+}
+
+/** Stable write branch name for `@dsr fix`; surfaced as the `branch-name` output. */
+export function writeBranchName(id: RequestId): string {
+  return `dshrb-fix/${id}`
+}
+
+function isNoChangesError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === NO_CHANGES_CODE
+}
+
+function validationFailureComment(report: ValidationReport): string {
+  const log = report.log.length > COMMENT_LOG_CAP
+    ? `${report.log.slice(0, COMMENT_LOG_CAP)}\n… (log truncated, see run output for the rest)`
+    : report.log
+  return [
+    '## DSH Reviewer Bot — validation failed',
+    '',
+    'The proposed fix did not pass the configured validation commands, so nothing was committed.',
+    '',
+    '```',
+    log,
+    '```',
+  ].join('\n')
+}
+
+/**
  * The mutate stage (docs/03 write-mode): resolve the sandbox policy once, write
- * each patch through `ctx.fs` with that policy, and produce the pending-commit
- * change set. Commit/push stay with the controller's later stages (#35); this
- * stage only lands the bytes inside the sandbox boundary.
+ * each patch through `ctx.fs` with that policy, run the configured validation
+ * commands as a commit gate, and commit through the forge's MutationSink only
+ * when they pass and the resulting changeset is non-empty.
  *
  * The symlink check is the sandbox layer's supplement to `isSafeRelativePath`
  * (pure syntax, does not resolve links): a repo-relative path that is a symlink
  * pointing outside the workspace is rejected before `resolve` follows it.
  */
 export async function mutate(
-  _request: ReviewRequest, patches: readonly Patch[], deps: StageDeps,
+  request: ReviewRequest, patches: readonly Patch[], deps: StageDeps,
 ): Promise<WriteResult> {
   const { fs, sandboxPolicy } = requireWriteDeps(deps)
   const policy = sandboxPolicy()
@@ -909,12 +1144,83 @@ export async function mutate(
     applied.push(step.patch)
   }
 
-  return {
-    appliedPatches: applied,
-    // Validation-command execution lands in #35; until then the change set is
-    // produced but not committed, and no validation ran.
-    validation: { ran: false, commands: [], passed: true, exitCodes: [] },
+  // Nothing landed → nothing to validate or commit. The empty report keeps the
+  // WriteResult honest without running a command against an unchanged tree.
+  if (applied.length === 0) {
+    return { appliedPatches: [], validation: { ran: false, commands: [], passed: true, exitCodes: [], enforcement: [], denials: [], log: '' } }
   }
+
+  // Commit gate: run the configured validation commands confined, then commit
+  // only when they pass. A validation failure posts the full log and produces
+  // no commit; the model's patches stay proposals until the gate accepts them.
+  const validationDeps = deps.validation
+  const commands = validationDeps?.commands ?? []
+  let validation: ValidationReport
+  if (commands.length === 0) {
+    validation = { ran: false, commands: [], passed: true, exitCodes: [], enforcement: [], denials: [], log: '' }
+  } else {
+    const confine = deps.confine
+    const run = deps.runConfinedCommand
+    if (confine === undefined || run === undefined) {
+      throw new ReviewError(
+        'E_MUTATE_UNWIRED', 'mutate',
+        'write mode requires sandbox confinement and a validation command runner', false,
+      )
+    }
+    validation = await runValidationCommands(
+      commands,
+      validationDeps?.envAllowlist ?? [],
+      validationDeps?.hostEnv ?? (() => ({})),
+      { confine, resolvePolicy: sandboxPolicy, run },
+    )
+  }
+
+  if (!validation.passed) {
+    const sink = deps.forges.require<CommentSink>(request.event.forgeId, ['comment-sink'])
+    await sink.createComment(request.event.target, validationFailureComment(validation))
+    return { appliedPatches: applied, validation }
+  }
+
+  const mutation = deps.forges.require<MutationSink>(request.event.forgeId, ['mutation-sink'])
+  const branch = writeBranchName(request.requestId)
+  const message = `dshrb: apply ${String(applied.length)} review suggestion${applied.length === 1 ? '' : 's'}`
+  try {
+    const sha = await mutation.commitPatches(request.event.target.repo, branch, applied, message)
+    return { appliedPatches: applied, commitSha: sha, validation }
+  } catch (error) {
+    // A clean, non-empty changeset is the second confirmation before a commit
+    // (docs/03). A sink that applied the patches and found nothing to commit
+    // reports it as a no-changes outcome, which is not a write failure.
+    if (isNoChangesError(error)) {
+      return { appliedPatches: [], validation }
+    }
+    throw error
+  }
+}
+
+/** Production spawn binding for `StageDeps.runConfinedCommand`. */
+export function spawnConfined(
+  confined: ConfinedArgv, cwd: string, env: NodeJS.ProcessEnv,
+): Promise<CommandOutcome> {
+  const [program, ...args] = confined.argv
+  return new Promise<CommandOutcome>((resolve, reject) => {
+    if (program === undefined || program === '') {
+      reject(new ReviewError('E_MUTATE_UNWIRED', 'mutate', 'confined argv is empty; nothing to run', false))
+      return
+    }
+    const appendCapped = (current: string, chunk: unknown): string => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+      const remaining = MAX_COMMAND_OUTPUT_BYTES - current.length
+      return remaining <= 0 ? current : current + text.slice(0, remaining)
+    }
+    const child = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout = appendCapped(stdout, chunk) })
+    child.stderr.on('data', (chunk) => { stderr = appendCapped(stderr, chunk) })
+    child.on('error', (error) => { reject(error) })
+    child.on('close', (code) => { resolve({ exitCode: code ?? -1, stdout, stderr }) })
+  })
 }
 
 // --- Report -----------------------------------------------------------------
@@ -1359,6 +1665,23 @@ export async function runReview(
       isolation = isolationProfile(deps)
     }
 
+    // A failed write-mode validation gate blocks the commit (docs/03 state
+    // machine: Mutating → ValidationFailedW). The fix did not land, so the run
+    // must not report success — the Action `conclusion` would then show a green
+    // check for a blocked fix. The findings are already published; only the
+    // verdict and the attached failure reflect the blocked write.
+    const validationBlocked = write !== undefined && write.validation.ran && !write.validation.passed
+    const validationFailure: Failure | undefined = validationBlocked
+      ? {
+          code: 'E_VALIDATION_FAILED',
+          phase: 'mutate',
+          title: 'write-mode validation failed',
+          message: 'the configured validation commands did not pass, so nothing was committed',
+          guidance: 'fix the failing checks and re-run @dsr fix',
+          retryable: false,
+        }
+      : undefined
+
     phase = 'report'
     return report({
       requestId: request.requestId,
@@ -1378,7 +1701,7 @@ export async function runReview(
       ...(write === undefined ? {} : { write }),
       ...(isolation === undefined ? {} : { isolation }),
       verdict: {
-        status: 'success',
+        status: validationBlocked ? 'failed' : 'success',
         findingsCount: validated.findings.length,
         blockersCount: countBlockers(validated.findings),
         durationMs: deps.now() - startedAt,
@@ -1386,7 +1709,7 @@ export async function runReview(
       ...(published.commentId === undefined ? {} : { stickyCommentId: published.commentId }),
       ...(replayId === undefined ? {} : { replayId }),
       ...(snapshotError === undefined ? {} : { snapshotError }),
-    })
+    }, validationFailure)
   } catch (error) {
     const failure: Failure = timedOut
       ? {
@@ -1624,6 +1947,13 @@ export function apply(ctx: Context, config: Config): void {
     trustPolicy: ctx.trustPolicy,
     fs: ctx.fs,
     sandboxPolicy: () => ctx.sandboxPolicy.resolve(),
+    confine: (argv, policy) => ctx.sandbox.confine(argv, policy),
+    runConfinedCommand: (confined, cwd, env) => spawnConfined(confined, cwd, env),
+    validation: {
+      commands: config.testCommands,
+      envAllowlist: config.validationEnv,
+      hostEnv: () => process.env,
+    },
   }
   const deps: StageDeps = { ...base, runAgent: createRunAgent(ctx) }
 

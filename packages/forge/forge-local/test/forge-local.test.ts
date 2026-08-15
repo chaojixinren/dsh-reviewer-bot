@@ -8,7 +8,7 @@ import {
 } from '@dshrb/review-core'
 import type { CommentId, Finding, ReviewTarget } from '@dshrb/review-core'
 import {
-  CAPABILITIES, COMMENT_PREFIX, ForgeUnimplementedError, UNIMPLEMENTED_CAPABILITIES,
+  CAPABILITIES, COMMENT_PREFIX, NoChangesToCommitError,
   createLocalDeps, createLocalGateway, parseGitDiff, parseHunks,
 } from '../src/index.ts'
 import type { Config, FileReader, GitRunner, LineWriter } from '../src/index.ts'
@@ -29,7 +29,7 @@ interface StubDeps {
   write: LineWriter
   gitOutput: string
   readonly lines: string[]
-  readonly gitCalls: string[][]
+  gitCalls: string[][]
   readonly reads: string[]
 }
 
@@ -95,7 +95,6 @@ describe('capability advertisement', () => {
     // ForgeRegistry.require rather than mid-pipeline.
     expect(CAPABILITIES).not.toContain('check-reader')
     expect(CAPABILITIES).not.toContain('sticky-comment')
-    expect(UNIMPLEMENTED_CAPABILITIES).toEqual(['mutation-sink'])
   })
 
   it('registers under the local forge id with the advertised capabilities', () => {
@@ -109,14 +108,100 @@ describe('capability advertisement', () => {
     // credential and no network. There is deliberately no token field here.
     expect(Object.keys(config())).toEqual(['root', 'workingTree'])
   })
+})
 
-  it('refuses M3 mutations explicitly instead of reporting a success it did not perform', async () => {
+describe('mutation sink', () => {
+  /** A git stub whose responses branch on the invoked subcommand. */
+  function mutationDeps(staged: string): StubDeps & { readonly commits: string[] } {
+    const base = stubDeps()
+    const commits: string[] = []
+    let branchExists = false
+    base.git = async (args) => {
+      base.gitCalls.push([...args])
+      if (args[0] === 'rev-parse' && args[1] === '--verify') {
+        if (!branchExists) throw new Error('not a branch')
+        return 'refs/heads/fix'
+      }
+      if (args[0] === 'checkout' && args[1] === '-b') {
+        branchExists = true
+        return ''
+      }
+      if (args[0] === 'checkout') {
+        return ''
+      }
+      if (args[0] === 'diff' && args[1] === '--cached') {
+        return staged
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return 'deadbeef'.repeat(5)
+      }
+      if (args[0] === 'commit') {
+        commits.push(args.join(' '))
+        return ''
+      }
+      return ''
+    }
+    return { ...base, commits }
+  }
+
+  it('stages the proposed paths, commits, and returns the new SHA', async () => {
+    const deps = mutationDeps('src/a.ts\n')
+    const gateway = createLocalGateway(config(), deps)
+    const sha = await gateway.commitPatches('local', 'fix/1', [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+b' },
+    ], 'apply review suggestions')
+
+    expect(sha).toBe('deadbeef'.repeat(5))
+    expect(deps.commits).toEqual(['commit -m apply review suggestions'])
+    expect(deps.gitCalls.some((call) => call[0] === 'add' && call.includes('src/a.ts'))).toBe(true)
+  })
+
+  it('refuses an empty changeset instead of creating an empty commit', async () => {
+    const deps = mutationDeps('')
+    const gateway = createLocalGateway(config(), deps)
+    await expect(gateway.commitPatches('local', 'fix/1', [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+b' },
+    ], 'msg')).rejects.toBeInstanceOf(NoChangesToCommitError)
+    expect(deps.commits).toHaveLength(0)
+  })
+
+  it('rejects an unsafe branch name', async () => {
     const gateway = createLocalGateway(config(), stubDeps())
-    await expect(gateway.commitPatches('local', 'main', [], 'msg'))
-      .rejects.toThrow(ForgeUnimplementedError)
-    await expect(gateway.openPullRequest({
-      repo: 'local', headBranch: 'fix', baseBranch: 'main', title: 't', body: 'b',
-    })).rejects.toThrow(/E_FORGE_M3_UNIMPLEMENTED|not implemented/)
+    await expect(gateway.commitPatches('local', 'bad..branch', [], 'msg'))
+      .rejects.toThrow(/invalid branch name/)
+  })
+
+  it('surfaces a checkout failure instead of masking it with checkout -b', async () => {
+    const calls: string[][] = []
+    const gateway = createLocalGateway(config(), {
+      ...stubDeps(),
+      git: async (args) => {
+        calls.push([...args])
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return 'refs/heads/fix'
+        }
+        if (args[0] === 'checkout') {
+          throw new Error('local changes would be overwritten')
+        }
+        return ''
+      },
+    })
+    await expect(gateway.commitPatches('local', 'fix/1', [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+b' },
+    ], 'msg')).rejects.toThrow(/local changes would be overwritten/)
+    // The branch already exists, so the create path must never run: a failed
+    // checkout is a checkout error, not a signal that the branch is absent.
+    expect(calls.filter((call) => call[0] === 'checkout' && call[1] === '-b')).toHaveLength(0)
+  })
+
+  it('openPullRequest returns a local branch reference and prints it', async () => {
+    const deps = stubDeps()
+    const gateway = createLocalGateway(config(), deps)
+    const url = await gateway.openPullRequest({
+      repo: 'local', headBranch: 'fix/1', baseBranch: 'main', title: 't', body: 'b',
+    })
+    expect(url).toBe('local://branch/fix/1')
+    expect(deps.lines).toContain('[dshrb:local] pull-request (local): fix/1 → main')
   })
 })
 

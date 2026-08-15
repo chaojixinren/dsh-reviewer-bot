@@ -12,8 +12,7 @@
  *   - DiffSource        -> real (`git diff` + working-tree read)
  *   - CommentSink       -> printed to the terminal (the local equivalent)
  *   - ActorResolver     -> the local actor is always the owner
- *   - MutationSink      -> declared but NOT implemented; throws at the M3
- *                          boundary, matching forge-github
+ *   - MutationSink      -> real (`git commit` on a branch of the working tree)
  *   - CheckReader       -> unsupported (no CI in a local dry-run), so the
  *                          capability is deliberately NOT advertised
  *   - sticky-comment    -> N/A (no persistent comment store), not advertised
@@ -43,14 +42,6 @@ export const FORGE_ID: ForgeId = forgeId('local')
 export const CAPABILITIES: readonly ForgeCapability[] = [
   'diff-source', 'comment-sink', 'inline-comments', 'actor-resolver', 'mutation-sink',
 ]
-
-/**
- * Declared for interface parity with the other providers but not yet
- * implemented; the methods throw `ForgeUnimplementedError` rather than report a
- * success they did not perform. Exported so a caller can assert the M3 boundary
- * up front instead of discovering it mid-pipeline.
- */
-export const UNIMPLEMENTED_CAPABILITIES: readonly ForgeCapability[] = ['mutation-sink']
 
 /** Terminal prefix for every "comment" this provider prints. */
 export const COMMENT_PREFIX = '[dshrb:local]'
@@ -88,11 +79,11 @@ export interface LocalDeps {
 }
 
 /** The M3 boundary, as an explicit refusal rather than a silent success. */
-export class ForgeUnimplementedError extends Error {
-  readonly code = 'E_FORGE_M3_UNIMPLEMENTED'
-  constructor(operation: string) {
-    super(`local: ${operation} is declared for M3 but not implemented yet`)
-    this.name = 'ForgeUnimplementedError'
+export class NoChangesToCommitError extends Error {
+  readonly code = 'E_NO_CHANGES'
+  constructor() {
+    super('local: nothing to commit — the applied patches left the working tree unchanged')
+    this.name = 'NoChangesToCommitError'
   }
 }
 
@@ -131,6 +122,50 @@ function assertSafePath(path: string): string {
 
 function excerpt(value: string): string {
   return value.length > 60 ? `${value.slice(0, 60)}…` : value
+}
+
+/**
+ * Rejects branch names git itself would not accept as a single `checkout`
+ * argument (docs/03 write-mode: the controller-derived branch is an untrusted
+ * string). `git check-ref-format` is the authority, but this pure pre-check
+ * keeps malformed names from ever reaching a subprocess.
+ */
+function assertSafeBranch(branch: string): string {
+  const trimmed = branch.trim()
+  const forbidden = '~^:?*[]\\'
+  const hasControl = [...trimmed].some((ch) => {
+    const code = ch.codePointAt(0) ?? 0
+    return code < 0x20 || code === 0x7f
+  })
+  const unsafe = trimmed === '' || trimmed === '@'
+    || trimmed.startsWith('-') || trimmed.startsWith('/')
+    || trimmed.endsWith('/') || trimmed.endsWith('.')
+    || trimmed.includes('..') || trimmed.includes('@{') || trimmed.includes('//')
+    || /\s/u.test(trimmed) || hasControl
+    || [...trimmed].some((ch) => forbidden.includes(ch))
+  if (unsafe) {
+    throw new TypeError(`local: invalid branch name '${excerpt(branch)}'`)
+  }
+  return trimmed
+}
+
+/** Checks out (creating when absent) the write branch for a mutation. */
+async function ensureBranch(git: GitRunner, branch: string): Promise<void> {
+  const safeBranch = assertSafeBranch(branch)
+  // The existence probe and the checkout are deliberately NOT wrapped in one
+  // try/catch. If the branch exists but `checkout` fails (dirty-tree conflict,
+  // permission error), that failure must propagate — folding it into a
+  // `checkout -b` would mask the real error behind a "branch already exists"
+  // failure from the create path.
+  let exists = false
+  try {
+    await git(['rev-parse', '--verify', safeBranch])
+    exists = true
+  } catch {
+    // The ref does not exist (rev-parse reports a non-zero exit), so create it.
+    exists = false
+  }
+  await git(exists ? ['checkout', safeBranch] : ['checkout', '-b', safeBranch])
 }
 
 // ---------------------------------------------------------------------------
@@ -463,13 +498,35 @@ export function createLocalGateway(config: Config, deps: LocalDeps): LocalGatewa
   // -- MutationSink (M3) ----------------------------------------------------
 
   async function commitPatches(
-    _repo: string, _branch: string, _patches: readonly Patch[], _message: string,
+    _repo: string, branch: string, patches: readonly Patch[], message: string,
   ): Promise<CommitSha> {
-    throw new ForgeUnimplementedError('commitPatches')
+    // The runtime's mutate stage already landed the bytes through `ctx.fs`; the
+    // local sink's job is only to turn the working-tree change set into a commit.
+    await ensureBranch(deps.git, branch)
+    const paths = patches.map((patch) => assertSafePath(patch.path))
+    if (paths.length === 0) {
+      throw new NoChangesToCommitError()
+    }
+    await deps.git(['add', '--', ...paths])
+
+    // Second confirmation that the applied patches actually changed a file
+    // (docs/03): a no-op patch stages nothing and must not produce a commit.
+    const staged = await deps.git(['diff', '--cached', '--name-only'])
+    if (staged.trim() === '') {
+      throw new NoChangesToCommitError()
+    }
+
+    await deps.git(['commit', '-m', message])
+    const sha = (await deps.git(['rev-parse', 'HEAD'])).trim()
+    return commitSha(sha)
   }
 
-  async function openPullRequest(_spec: PullRequestSpec): Promise<string> {
-    throw new ForgeUnimplementedError('openPullRequest')
+  async function openPullRequest(spec: PullRequestSpec): Promise<string> {
+    const head = assertSafeBranch(spec.headBranch)
+    deps.write(`${COMMENT_PREFIX} pull-request (local): ${head} → ${spec.baseBranch}`)
+    // A hosted provider returns the PR URL; the local dry-run has no remote, so
+    // the branch reference is the honest stand-in.
+    return `local://branch/${head}`
   }
 
   return {

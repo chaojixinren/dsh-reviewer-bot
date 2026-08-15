@@ -135,7 +135,7 @@ describe('buildOutputs', () => {
         appliedPatches: [],
         commitSha: commitSha('deadbeef'),
         pullRequestUrl: 'https://github.com/a/b/pull/9',
-        validation: { ran: false, commands: [], passed: true, exitCodes: [] },
+        validation: { ran: false, commands: [], passed: true, exitCodes: [], enforcement: [], denials: [], log: '' },
       },
     }))
     expect(outputs['commit-sha']).toBe('deadbeef')
