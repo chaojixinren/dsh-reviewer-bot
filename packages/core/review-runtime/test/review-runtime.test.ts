@@ -15,11 +15,14 @@ import type { FsPathInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type { ConfinedArgv, SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
   applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
-  buildValidationEnv, classifyConfinedRun, deriveReplayId, ingest, mutate, narrowPatches, parseReplaySnapshot,
-  renderDiagnoseContext, report, route, runReview, runValidationCommands, shardDiff, SNAPSHOT_VERSION,
-  toConfinedPolicy, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog, writeBranchName,
+  buildValidationEnv, classifyConfinedRun, clusterFiles, deriveReplayId, extractLocalImports, fanOutShards,
+  ingest, mergeFindings, mutate, narrowPatches, parseReplaySnapshot, reason, renderDiagnoseContext, report,
+  resolveLocalImport, route, runReview, runValidationCommands, shardDiff, SNAPSHOT_VERSION, toConfinedPolicy,
+  UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog, writeBranchName,
 } from '../src/index.ts'
-import type { AgentOutput, CommandOutcome, Config, ReplaySnapshot, StageDeps, WriteFs } from '../src/index.ts'
+import type {
+  AgentOutput, BoundedContext, CommandOutcome, Config, ReplaySnapshot, ShardFinding, StageDeps, WriteFs,
+} from '../src/index.ts'
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -40,6 +43,28 @@ function diffFixture(): UnifiedDiff {
       },
       { path: 'img.png', hunks: [], binary: true },
     ],
+  }
+}
+
+/** A single-hunk text with a unique marker, so coverage assertions cannot collide. */
+function hunkFixture(marker: string, index: number): { oldStart: number; oldLines: number; newStart: number; newLines: number; text: string } {
+  return {
+    oldStart: index,
+    oldLines: 2,
+    newStart: index,
+    newLines: 2,
+    text: `@@ -${index},2 +${index},2 @@\n-old-${marker}-${index}\n+new-${marker}-${index}\n`,
+  }
+}
+
+/** 12 files × 5 hunks — a thousand-line-scale diff that must split into shards. */
+function largeDiffFixture(): UnifiedDiff {
+  return {
+    files: Array.from({ length: 12 }, (_, fileIndex) => ({
+      path: `src/module-${fileIndex}.ts`,
+      hunks: Array.from({ length: 5 }, (_, hunkIndex) => hunkFixture(`f${fileIndex}`, hunkIndex + 1)),
+      binary: false,
+    })),
   }
 }
 
@@ -104,6 +129,9 @@ function depsFixture(over: Partial<StageDeps> = {}): StageDeps {
     allowWrite: false,
     minSeverity: 'minor',
     shardBytes: 120_000,
+    parallelShards: false,
+    shardConcurrency: 4,
+    shardTokenBudget: 0,
     matchRules: () => [ruleFixture()],
     memory: [],
     trustPolicy: trustPolicyFixture(),
@@ -133,6 +161,8 @@ function configFixture(over: Partial<Config> = {}): Config {
     timeoutMinutes: 25,
     shardBytes: 120_000,
     parallelShards: true,
+    shardConcurrency: 4,
+    shardTokenBudget: 0,
     snapshotReplay: true,
     allowWrite: false,
     minSeverity: 'minor',
@@ -387,6 +417,75 @@ describe('shardDiff', () => {
       expect(shard.files).not.toContain('img.png')
     }
   })
+
+  it('is deterministic for the same diff and budget', () => {
+    const diff = largeDiffFixture()
+    expect(shardDiff(diff, 200)).toEqual(shardDiff(diff, 200))
+  })
+
+  it('covers every hunk exactly once and produces multiple shards for a thousand-line diff', () => {
+    const diff = largeDiffFixture()
+    const shards = shardDiff(diff, 300)
+    expect(shards.length).toBeGreaterThan(1)
+
+    const allText = shards.map((shard) => shard.text).join('\n')
+    for (const file of diff.files) {
+      for (const hunk of file.hunks) {
+        const occurrences = allText.split(hunk.text).length - 1
+        expect(occurrences, `hunk ${file.path} must be covered exactly once`).toBe(1)
+      }
+    }
+  })
+
+  it('clusters related files together and keeps unrelated files apart (import graph)', () => {
+    const diff: UnifiedDiff = {
+      files: [
+        { path: 'a.ts', hunks: [hunkFixture('a', 1)], binary: false },
+        { path: 'c.ts', hunks: [hunkFixture('c', 1)], binary: false },
+        { path: 'b.ts', hunks: [hunkFixture('b', 1)], binary: false },
+      ],
+    }
+    const imports = new Map<string, readonly string[]>([['a.ts', ['./b']]])
+    const shards = shardDiff(diff, 10_000, imports)
+    expect(shards).toHaveLength(1)
+    // `a` imports `b`, so the component [a, b] packs first; `c` follows.
+    expect(shards[0]?.files).toEqual(['a.ts', 'b.ts', 'c.ts'])
+  })
+})
+
+describe('import clustering helpers', () => {
+  it('extracts only relative import specs', () => {
+    const content = [
+      "import { x } from './sibling'",
+      "import y from '../parent'",
+      "import { z } from 'pkg'",
+      "const d = require('./dynamic')",
+      "const e = require('another-pkg')",
+    ].join('\n')
+    expect(extractLocalImports(content)).toEqual(['./sibling', '../parent', './dynamic'])
+  })
+
+  it('resolves relative imports and rejects repo-root escapes', () => {
+    expect(resolveLocalImport('src/foo.ts', './bar')).toBe('src/bar')
+    expect(resolveLocalImport('src/nested/foo.ts', '../bar')).toBe('src/bar')
+    expect(resolveLocalImport('src/foo.ts', '../bar')).toBe('bar')
+    expect(resolveLocalImport('foo.ts', '../bar')).toBeUndefined()
+    expect(resolveLocalImport('foo.ts', 'pkg')).toBeUndefined()
+  })
+
+  it('clusters files into import-connected components deterministically', () => {
+    const imports = new Map<string, readonly string[]>([
+      ['src/a.ts', ['./b', './c']],
+      ['src/c.ts', ['./d']],
+    ])
+    const components = clusterFiles(['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'], imports)
+    expect(components).toEqual([
+      ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts'],
+      ['src/e.ts'],
+    ])
+    expect(clusterFiles(['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'], imports))
+      .toEqual(components)
+  })
 })
 
 describe('assembleContext', () => {
@@ -448,6 +547,191 @@ describe('validate', () => {
   })
 })
 
+// --- mergeFindings (cross-shard dedupe) --------------------------------------
+
+describe('mergeFindings', () => {
+  function shardFinding(shardIndex: number, over: Partial<RawProposal> = {}): ShardFinding {
+    const { findings } = validate([validProposal(over)], diffFixture(), [])
+    const finding = findings[0]
+    if (finding === undefined) throw new Error('expected a finding')
+    return { shardIndex, finding }
+  }
+
+  it('collapses the same path+line+ruleId+normalized-title across shards, keeping the higher severity', () => {
+    const merged = mergeFindings([
+      shardFinding(0, { severity: 'minor', title: 'Use strict equality', body: 'worded one way' }),
+      shardFinding(1, { severity: 'major', title: 'use strict equality', body: 'worded differently' }),
+    ])
+    expect(merged.findings).toHaveLength(1)
+    expect(merged.findings[0]?.severity).toBe('major')
+    expect(merged.merged).toHaveLength(1)
+    expect(merged.merged[0]?.shardHits).toBe(2)
+    expect(merged.merged[0]?.severity).toBe('major')
+  })
+
+  it('does not merge the same line under different ruleIds', () => {
+    const merged = mergeFindings([
+      shardFinding(0, { ruleId: 'correctness/eq', title: 'Same title' }),
+      shardFinding(1, { ruleId: 'security/xss', title: 'Same title' }),
+    ])
+    expect(merged.findings).toHaveLength(2)
+    expect(merged.merged).toHaveLength(0)
+  })
+
+  it('does not merge different problems at the same location (title is in the dedupe key)', () => {
+    // Same path+line+ruleId but different titles are different problems.
+    // publishIdempotencyKey (no title) would collapse these; findingDedupeKey must not.
+    const merged = mergeFindings([
+      shardFinding(0, { ruleId: 'correctness/eq', title: 'Problem A' }),
+      shardFinding(1, { ruleId: 'correctness/eq', title: 'Problem B' }),
+    ])
+    expect(merged.findings).toHaveLength(2)
+    expect(merged.merged).toHaveLength(0)
+  })
+
+  it('keeps a single-shard finding unmerged with no audit entry', () => {
+    const merged = mergeFindings([shardFinding(0)])
+    expect(merged.findings).toHaveLength(1)
+    expect(merged.merged).toHaveLength(0)
+  })
+})
+
+// --- fanOutShards / reason ---------------------------------------------------
+
+async function multiShardBounded(shardBytes = 200): Promise<BoundedContext> {
+  const event = await ingest(prPayload(), depsFixture())
+  const { request } = await authorize(event, 'review', depsFixture())
+  return assembleContext(request, largeDiffFixture(), depsFixture({ shardBytes }))
+}
+
+describe('fanOutShards', () => {
+  it('runs every shard through the seam and concatenates proposals and patches', async () => {
+    const bounded = await multiShardBounded()
+    const seen: number[] = []
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async (single) => {
+        const [shard] = single.shards
+        if (shard === undefined) throw new Error('missing shard')
+        seen.push(shard.index)
+        return { proposals: [validProposal({ line: shard.index + 1 })], patches: [] }
+      },
+    })
+    const output = await fanOutShards(bounded, deps, new AbortController().signal)
+    expect(seen.sort((a, b) => a - b)).toEqual(bounded.shards.map((shard) => shard.index).sort((a, b) => a - b))
+    expect(output.proposals).toHaveLength(bounded.shards.length)
+    expect(output.shardResults).toHaveLength(bounded.shards.length)
+  })
+
+  it('never exceeds the configured concurrency cap', async () => {
+    const bounded = await multiShardBounded()
+    let inFlight = 0
+    let peak = 0
+    const deps = depsFixture({
+      parallelShards: true,
+      shardConcurrency: 2,
+      runShard: async () => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight -= 1
+        return { proposals: [], patches: [] }
+      },
+    })
+    await fanOutShards(bounded, deps, new AbortController().signal)
+    expect(peak).toBe(2)
+    expect(inFlight).toBe(0)
+  })
+
+  it('tolerates a failing shard and reports it as incomplete without dropping the rest', async () => {
+    const bounded = await multiShardBounded()
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async (single) => {
+        const [shard] = single.shards
+        if (shard === undefined) return { proposals: [], patches: [] }
+        if (shard.index === 0) throw new Error('model timeout')
+        return { proposals: [validProposal({ line: 2 })], patches: [] }
+      },
+    })
+    const output = await fanOutShards(bounded, deps, new AbortController().signal)
+    expect(output.incompleteShards).toBe(1)
+    expect(output.proposals.length).toBeGreaterThan(0)
+    expect(output.shardResults?.map((r) => r.shardIndex)).not.toContain(0)
+  })
+
+  it('passes a per-shard token budget derived from shardTokenBudget', async () => {
+    const bounded = await multiShardBounded()
+    const budgets: number[] = []
+    const deps = depsFixture({
+      parallelShards: true,
+      shardTokenBudget: 1000,
+      runShard: async (_single, _signal, budget) => {
+        budgets.push(budget ?? 0)
+        return { proposals: [], patches: [] }
+      },
+    })
+    await fanOutShards(bounded, deps, new AbortController().signal)
+    expect(budgets.every((budget) => budget === Math.ceil(1000 / bounded.shards.length))).toBe(true)
+  })
+
+  it('passes the truncated marker through to each shard context', async () => {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    const bounded = assembleContext(request, diffFixture(), depsFixture({ shardBytes: 30 }))
+    expect(bounded.shards.every((shard) => shard.truncated)).toBe(true)
+
+    const received: boolean[] = []
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async (single) => {
+        received.push(single.shards[0]?.truncated ?? false)
+        return { proposals: [], patches: [] }
+      },
+    })
+    await fanOutShards(bounded, deps, new AbortController().signal)
+    expect(received.every((truncated) => truncated)).toBe(true)
+  })
+})
+
+describe('reason', () => {
+  it('falls back to runAgent when runShard is absent', async () => {
+    const bounded = await multiShardBounded()
+    const deps = depsFixture({ parallelShards: true, runAgent: async () => ({ proposals: [validProposal()], patches: [] }) })
+    const output = await reason(bounded, deps, new AbortController().signal)
+    expect(output.proposals).toHaveLength(1)
+    expect(output.shardResults).toBeUndefined()
+  })
+
+  it('falls back to runAgent for a single-shard diff', async () => {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    const bounded = assembleContext(request, diffFixture(), depsFixture())
+    let shardCalls = 0
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async () => {
+        shardCalls += 1
+        return { proposals: [], patches: [] }
+      },
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const output = await reason(bounded, deps, new AbortController().signal)
+    expect(shardCalls).toBe(0)
+    expect(output.proposals).toHaveLength(1)
+  })
+
+  it('fans out when parallelShards is on and the diff split into multiple shards', async () => {
+    const bounded = await multiShardBounded()
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const output = await reason(bounded, deps, new AbortController().signal)
+    expect(output.shardResults?.length).toBe(bounded.shards.length)
+  })
+})
+
 // --- buildSummary -----------------------------------------------------------
 
 describe('buildSummary', () => {
@@ -467,6 +751,16 @@ describe('buildSummary', () => {
 
   it('says no findings when empty', () => {
     expect(buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [])).toContain('No findings.')
+  })
+
+  it('declares incomplete shards explicitly instead of pretending full coverage', () => {
+    const text = buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [], 3)
+    expect(text).toContain('3 diff shards did not complete')
+  })
+
+  it('omits the incomplete note when every shard completed', () => {
+    const text = buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [], 0)
+    expect(text).not.toContain('did not complete')
   })
 })
 
@@ -898,6 +1192,25 @@ describe('runReview', () => {
     expect(result.trust).toBe('trusted-read')
     expect(result.forgeId).toBe(GITHUB)
     expect(result.summary).toContain('loose equality')
+  })
+
+  it('fans shards out, tolerates a partial failure, and declares the incomplete shards', async () => {
+    const deps = depsFixture({
+      parallelShards: true,
+      shardBytes: 200,
+      forges: gatewayFixture({ fetchDiff: async () => largeDiffFixture() }),
+      runShard: async (single) => {
+        const [shard] = single.shards
+        if (shard === undefined) return { proposals: [], patches: [] }
+        if (shard.index === 0) throw new Error('model timeout')
+        return { proposals: [validProposal()], patches: [] }
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings.length).toBeGreaterThan(0)
+    expect(result.timing?.incompleteShards).toBe(1)
+    expect(result.summary).toContain('did not complete')
   })
 
   it('returns neutral without publishing when nothing is routed', async () => {

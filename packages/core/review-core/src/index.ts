@@ -207,10 +207,24 @@ export interface Verdict {
   readonly durationMs: number
 }
 
+/**
+ * Per-stage timing for `result-json.timing`. Optional fields are added without
+ * bumping `schemaVersion` (docs/07:174): a consumer reading only `durationMs`
+ * keeps working, while a newer consumer reads the shard fan-out details.
+ */
+export interface ResultTiming {
+  /** Wall-clock ms spent in the shard fan-out; absent on the single-agent path. */
+  readonly shardMs?: number
+  /** Shards that did not complete (timeout/error) during a fan-out. */
+  readonly incompleteShards?: number
+}
+
 export interface ReviewResult {
   readonly requestId: RequestId
   readonly verdict: Verdict
   readonly findings: readonly Finding[]
+  /** Per-stage timing; the fan-out entries are present only on a sharded run. */
+  readonly timing?: ResultTiming
   /** Proposals rejected during validation, with reasons, for auditability. */
   readonly discarded: readonly DiscardedProposal[]
   /** The intent that ran. Absent only when the run failed before routing. */

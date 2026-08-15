@@ -134,7 +134,7 @@ export function buildResultJson(result: ReviewResult): Record<string, unknown> {
   return {
     schemaVersion: SCHEMA_VERSION,
     status: result.verdict.status,
-    timing: { durationMs: result.verdict.durationMs },
+    timing: { durationMs: result.verdict.durationMs, ...result.timing },
     policy: {
       trustLevel: result.trust ?? 'none',
       capabilities: result.capabilities ?? null,
