@@ -2,7 +2,7 @@
 
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
 
-> **当前状态：M1（只读评审闭环）进行中。** 领域类型（`review-core`）、forge 接口 + 注册表 + 锚定器、信任判定（`trust-policy`）、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 的 `validate` 校验链已落地并配单测（195 例），`signature-probe` 在真实容器里验证扩展点签名（9/9）。评审管线其余阶段、进度上报、规则、GitLab provider 与 driver 外壳仍未实现。
+> **当前状态：M2（规则与本地化）进行中。** M1 只读评审闭环已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`），配 322 例单测（13 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M2 已交付 `rule-registry`（规则包注册表）、`rules-baseline`（基线规则包）、`forge-local`（本地 git provider，离线 dry-run）；`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）仍为脚手架。M3 写模式与 M4 生态（GitLab provider、webhook 等）尚未开始。
 
 ## 为什么不是又一个 CI Action
 
@@ -70,7 +70,7 @@ Node 22.19+ / 24+ / 26，pnpm 11.x，对齐上游 DSH 的 engine floor。
 ```
 docs/                    设计文档（mermaid）
 packages/core/           领域类型 · Forge 接口 · 信任策略 · 规则注册表 · 管线 · 进度上报
-packages/forge/          GitHub / GitLab provider
+packages/forge/          GitHub / GitLab / 本地 provider
 packages/tools/          模型可见评审工具
 packages/rules/          基线规则包
 packages/drivers/        Action / Webhook / CLI 三种外壳
