@@ -116,6 +116,11 @@ flowchart TB
 
 锚定失败**必须降级而不是丢弃**——评论落错位置比放在汇总里更糟糕，但静默丢掉一个真问题也不可接受。
 
+锚定器（`createAnchorResolver`）把模型提议的 `path` + 行号映射到 diff 坐标，两条规则必须遵守：
+
+- **右侧优先、跨 hunk 全量比较**：模型报的是新侧（`right`）行号，所以先在所有 hunk 里找右侧命中；只有没有任何 hunk 的 new 区间包含该行时，才落到左侧（`left`）。若边扫边返回，前面 hunk 的旧侧命中会遮挡后面 hunk 的新侧命中，违反「右侧优先」。
+- **重命名文件的路径按侧重映射**：`DiffFile.previousPath` 命中后，锚点必须携带 forge 可路由的真实路径，而不是提案引用的原始路径——`side: right` 落到新路径 `path`，`side: left` 落到旧路径 `previousPath`（无重命名时退化为 `path`）。`createInlineComments` 只拿到 finding、拿不到 diff，无法自行重映射；若锚点存了过期路径，发布时会把评论发到不存在的文件上。
+
 ## 幂等与重试
 
 ```mermaid

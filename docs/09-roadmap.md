@@ -153,6 +153,6 @@ flowchart LR
 
 M0 已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）均已就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）。
 
-已实现：`review-core` 领域类型（M1 第一项，41 例单测）、`forge` 接口 + 注册表（3 例单测）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁（55 例单测）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名（9/9）。
+已实现：`review-core` 领域类型（41 例单测）、`forge` 接口 + 注册表 + `AnchorResolver`（14 例单测）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁（55 例单测）、`forge-github` provider（56 例单测）、`tool-review` 只读工具（17 例单测）、`review-runtime` 的 `validate` 校验链（归一化 → hunk 锚定 → schema 收窄 → 体积上限 → 去重，12 例单测）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名（9/9）。共 7 个测试文件、195 例单测。
 
-未实现（刻意）：8 个插件 `apply()` 抛 `not implemented`（评审管线 review-runtime、进度上报 progress、工具 tool-review、规则 rule-registry / rules-baseline、GitHub/GitLab provider、driver-webhook），driver-action / driver-cli 入口同样未实现；32 处 TODO（M1:10 / M2:8 / M3:2 / M4:12），3 个测试文件共 99 用例。下一步继续 M1 只读评审闭环。
+未实现（刻意）：`review-runtime` 除 `validate` 外的管线阶段（ingest / route / authorize / assembleContext / reason / publish / mutate / report / runReview）与 `apply()` 仍抛 `not implemented`；`progress`、`rule-registry`、`rules-baseline`、`driver-action`、`driver-cli`、`driver-webhook`、`forge-gitlab` 同样未实现。25 处 TODO（M1:3 / M2:8 / M3:2 / M4:12）。下一步继续 M1 只读评审闭环：progress sticky 上报 → driver-action。

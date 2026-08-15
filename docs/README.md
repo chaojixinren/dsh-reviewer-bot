@@ -1,6 +1,6 @@
 # DSH Reviewer Bot 设计文档
 
-> 状态：M0 脚手架完成，进入 M1（只读评审闭环）；领域类型、forge 注册表、信任判定（`trust-policy`）已落地，评审管线/工具/规则/provider 未实现
+> 状态：M1（只读评审闭环）进行中；领域类型、forge 接口 + 锚定器、信任判定（`trust-policy`）、`forge-github` provider、`tool-review` 工具、`review-runtime` 校验链已落地（195 例单测），评审管线其余阶段/进度上报/规则/GitLab provider 未实现
 > 目标形态：**DSH 原生插件集** + 可选的 GitHub Action / Webhook 守护进程外壳
 
 ## 一句话定位
