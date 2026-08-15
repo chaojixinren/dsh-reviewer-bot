@@ -99,7 +99,13 @@ examples/                workflow 模板
 
 ## Star 历史
 
-[![Star History Chart](https://api.star-history.com/svg?repos=chaojixinren/dsh-reviewer-bot&type=Date)](https://www.star-history.com/?type=date&repos=chaojixinren%2Fdsh-reviewer-bot)
+<a href="https://www.star-history.com/?repos=chaojixinren%2Fdsh-reviewer-bot&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=chaojixinren/dsh-reviewer-bot&type=date&theme=dark&legend=top-left&sealed_token=I6mGiUsP3J8qGlfTB1jOBHZ79XbZO6ffLQwc3rCVJhK9MgZDTIMb8VMm5adRF67Btc1-hBIZ-iu4MJ7DcQopmf80YjoCEEpMLybU_7FTCVIUnqSGGOzNFqhTAy2ZeCes0DAQRGneC0FO_hf2YcWls7-6nqGvWT4RR-dXBQX-Jukoc7DP1Ps4NG24oeXI" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=chaojixinren/dsh-reviewer-bot&type=date&legend=top-left&sealed_token=I6mGiUsP3J8qGlfTB1jOBHZ79XbZO6ffLQwc3rCVJhK9MgZDTIMb8VMm5adRF67Btc1-hBIZ-iu4MJ7DcQopmf80YjoCEEpMLybU_7FTCVIUnqSGGOzNFqhTAy2ZeCes0DAQRGneC0FO_hf2YcWls7-6nqGvWT4RR-dXBQX-Jukoc7DP1Ps4NG24oeXI" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=chaojixinren/dsh-reviewer-bot&type=date&legend=top-left&sealed_token=I6mGiUsP3J8qGlfTB1jOBHZ79XbZO6ffLQwc3rCVJhK9MgZDTIMb8VMm5adRF67Btc1-hBIZ-iu4MJ7DcQopmf80YjoCEEpMLybU_7FTCVIUnqSGGOzNFqhTAy2ZeCes0DAQRGneC0FO_hf2YcWls7-6nqGvWT4RR-dXBQX-Jukoc7DP1Ps4NG24oeXI" />
+  </picture>
+</a>
 
 ## 许可
 

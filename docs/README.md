@@ -1,6 +1,6 @@
 # DSH Reviewer Bot 设计文档
 
-> 状态：M2（规则与本地化）已完成；M1 只读评审闭环已全部落地（领域类型、forge 接口 + 锚定器、`trust-policy`、`forge-github`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action`，355 例单测），M2 已交付 `rule-registry` / `rules-baseline` / `forge-local` / `driver-cli`，M3/M4 尚未实现
+> 状态：M2（规则与本地化）已完成；M1 只读评审闭环已全部落地（领域类型、forge 接口 + 锚定器、`trust-policy`、`forge-github`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action`，362 例单测），M2 已交付 `rule-registry` / `rules-baseline` / `forge-local` / `driver-cli`，M3 写模式进行中（`diagnose` 意图已落地），M4 尚未实现
 > 目标形态：**DSH 原生插件集** + 可选的 GitHub Action / Webhook 守护进程外壳
 
 ## 一句话定位
