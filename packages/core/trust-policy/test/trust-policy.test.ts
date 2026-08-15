@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Capabilities, ReviewIntent, TrustLevel } from '@dshrb/review-core'
 import type { ForgePermission } from '@dshrb/forge'
+import { TOOL_NAMES } from '@dshrb/tool-review'
 import {
   GOVERNED_TOOLS,
   INTENT_MIN_TRUST,
@@ -398,5 +399,24 @@ describe('createTrustPolicy', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.allow).toEqual([...visibleTools('untrusted')])
     expect(calls[0]?.allow).not.toContain('read_repo_file')
+  })
+})
+
+describe('tool whitelist parity (M2)', () => {
+  it('governs every tool-review tool, so none can fall through fail-open', () => {
+    // A tool-review tool missing from GOVERNED_TOOLS would be hidden by
+    // restrictScope's allow-list but the pre-execute waterfall would abstain
+    // (fail open). This pins TOOL_NAMES ⊆ GOVERNED_TOOLS.
+    for (const tool of TOOL_NAMES) {
+      expect(GOVERNED_TOOLS, `tool ${tool} must be governed`).toContain(tool)
+    }
+  })
+
+  it('governs nothing that is not a tool-review tool', () => {
+    // The reverse direction: a renamed or removed tool-review tool must not
+    // leave a stale classification behind in the table.
+    for (const tool of GOVERNED_TOOLS) {
+      expect(TOOL_NAMES, `governed tool ${tool} must still exist`).toContain(tool)
+    }
   })
 })

@@ -164,6 +164,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(f8724372086ccc1457fc84e7becee2e0)
+      '@dshrb/tool-review':
+        specifier: workspace:*
+        version: link:../../tools/tool-review
 
   packages/drivers/driver-action:
     dependencies:

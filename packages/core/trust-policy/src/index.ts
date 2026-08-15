@@ -190,11 +190,11 @@ export type ToolRequirement = keyof Capabilities | 'always'
  * A tool absent from this table is not ours: the waterfall abstains and calls
  * `next()` rather than deciding for another plugin.
  *
- * TODO(M2): once `@dshrb/tool-review` exports `TOOL_NAMES`, add a CI test
- * asserting `TOOL_NAMES ⊆ GOVERNED_TOOLS`. A tool-review tool missing from
- * this table would be hidden by `restrictScope`'s allow-list, but the
- * waterfall would abstain (fail open) — the parity test only covers tools
- * that ARE classified here.
+ * Parity is pinned by a CI test in `test/trust-policy.test.ts` asserting
+ * `TOOL_NAMES ⊆ GOVERNED_TOOLS` (and the reverse). A tool-review tool missing
+ * from this table would be hidden by `restrictScope`'s allow-list, but the
+ * waterfall would abstain (fail open) — the parity test keeps the two lists
+ * from drifting.
  */
 export const TOOL_REQUIREMENTS: Readonly<Record<string, ToolRequirement>> = Object.freeze({
   read_diff_shard: 'readDiff',
