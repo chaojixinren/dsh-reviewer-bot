@@ -10,6 +10,7 @@
     { "path": "./packages/core/progress" },
     { "path": "./packages/forge/forge-github" },
     { "path": "./packages/forge/forge-gitlab" },
+    { "path": "./packages/forge/forge-local" },
     { "path": "./packages/tools/tool-review" },
     { "path": "./packages/rules/rules-baseline" },
     { "path": "./packages/drivers/driver-action" },

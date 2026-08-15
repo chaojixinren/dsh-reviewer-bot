@@ -51,6 +51,7 @@ const PACKAGES = [
   ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'tool-review']],
   ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge']],
   ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge']],
+  ['forge/forge-local', 'forge-local', 'Local git ForgeGateway provider for offline dry-run.', ['review-core', 'forge']],
   ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],
   ['rules/rules-baseline', 'rules-baseline', 'Baseline review rule pack: correctness, security, maintainability.', ['review-core', 'rule-registry']],
   ['drivers/driver-action', 'driver-action', 'GitHub Action driver shell.', ['review-core', 'review-runtime', 'forge-github']],
