@@ -63,8 +63,8 @@ flowchart LR
 | M1 | progress sticky 上报 | 3d | forge + github | |
 | M1 | driver-action | 4d | validator | ✅ |
 | M2 | rule-registry | 4d | review-core | ✅ |
-| M2 | rules-baseline | 6d | rule-registry | ✅ |
-| M2 | forge-local | 4d | forge 接口 | ✅ |
+| M2 | rules-baseline | 6d | rule-registry | |
+| M2 | forge-local | 4d | forge 接口 | |
 | M2 | driver-cli + replay | 6d | rule-registry + forge-local | ✅ |
 | M3 | sandbox 隔离 | 5d | driver-cli + replay | ✅ |
 | M3 | guard 硬红线 | 3d | sandbox 隔离 | |
