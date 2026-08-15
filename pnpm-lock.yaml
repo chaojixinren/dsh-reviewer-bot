@@ -110,6 +110,9 @@ importers:
       '@dshrb/rule-registry':
         specifier: workspace:*
         version: link:../rule-registry
+      '@dshrb/tool-review':
+        specifier: workspace:*
+        version: link:../../tools/tool-review
       '@dshrb/trust-policy':
         specifier: workspace:*
         version: link:../trust-policy

@@ -48,7 +48,7 @@ const PACKAGES = [
   ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core', 'forge']],
   ['core/rule-registry', 'rule-registry', 'Declarative review rule pack registry with glob matching.', ['review-core']],
   ['core/progress', 'progress', 'Sticky progress comment lifecycle reporter.', ['review-core', 'forge']],
-  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry']],
+  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'tool-review']],
   ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge']],
   ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge']],
   ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],

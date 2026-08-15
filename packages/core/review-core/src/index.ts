@@ -189,9 +189,39 @@ export interface ReviewResult {
   readonly findings: readonly Finding[]
   /** Proposals rejected during validation, with reasons, for auditability. */
   readonly discarded: readonly DiscardedProposal[]
+  /** The intent that ran. Absent only when the run failed before routing. */
+  readonly operation?: ReviewIntent
+  /** The forge provider that produced the event. Absent before ingest succeeds. */
+  readonly forgeId?: ForgeId
+  /** Resolved trust level, for the `trust` scalar output and result-json policy. */
+  readonly trust?: TrustLevel
+  /** Resolved capabilities, for result-json `policy.capabilities`. */
+  readonly capabilities?: Capabilities
+  /** Publish outcome, for result-json `publication`. */
+  readonly publication?: PublicationStats
+  /** Active rule packs with versions, for the auditable result-json `rules`. */
+  readonly rules?: readonly RulePackSummary[]
+  /** Human-readable summary, untrusted — pass via env, never into a shell. */
+  readonly summary?: string
   readonly write?: WriteResult
   readonly failure?: Failure
   readonly stickyCommentId?: CommentId
+  /** Snapshot id for `dshrb replay`. Absent until B4 snapshots land. */
+  readonly replayId?: string
+}
+
+/** Publish outcome: how many findings posted, degraded, or failed. */
+export interface PublicationStats {
+  readonly published: number
+  readonly degradedToSummary: number
+  readonly failed: number
+}
+
+/** Rule pack identity for the auditable result-json `rules` field. */
+export interface RulePackSummary {
+  readonly id: string
+  readonly version: string
+  readonly title: string
 }
 
 export interface DiscardedProposal {
