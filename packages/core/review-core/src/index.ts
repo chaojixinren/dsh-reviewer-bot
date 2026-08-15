@@ -591,6 +591,16 @@ export function toDiscarded(raw: RawProposal, rejection: Rejected): DiscardedPro
  * into a `Finding`.
  */
 export function findingInvariantViolation(finding: Finding): string | undefined {
+  if (finding.findingId.trim() === '') {
+    return 'finding has an empty findingId'
+  }
+  // A `Severity` is only ever minted by `isSeverity` / `narrowProposal`, but this
+  // is the net for every OTHER route into a Finding (replay snapshot, hand-built
+  // test fixture), where an unsafe cast could smuggle `'critical'` through.
+  // Without this, `severityRank` would return -1 and silently invert ordering.
+  if (!isSeverity(finding.severity)) {
+    return `finding has an invalid severity '${excerpt(String(finding.severity))}'`
+  }
   if (finding.title.trim() === '') {
     return 'finding has an empty title'
   }

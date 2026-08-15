@@ -308,6 +308,15 @@ describe('findingInvariantViolation', () => {
     const badLine: Anchor = { path: 'src/a.ts', line: -1, side: 'right', anchored: true }
     expect(findingInvariantViolation(finding({ anchor: badLine }))).toMatch(/positive integer/)
   })
+
+  it('catches an invalid severity and an empty finding id smuggled past the types', () => {
+    // Only reachable via an unsafe cast or a hand-edited replay snapshot, which
+    // is exactly what this net exists to catch.
+    expect(findingInvariantViolation(finding({ severity: 'critical' as Severity })))
+      .toMatch(/invalid severity/)
+    expect(findingInvariantViolation(finding({ findingId: '' as Finding['findingId'] })))
+      .toMatch(/empty findingId/)
+  })
 })
 
 describe('findingDedupeKey', () => {
