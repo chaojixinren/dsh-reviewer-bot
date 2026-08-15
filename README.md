@@ -63,6 +63,8 @@ pnpm run check     # typecheck + lint + test
 
 Node 22.19+ / 24+ / 26，pnpm 11.x，对齐上游 DSH 的 engine floor。
 
+想参与开发？先读 [贡献指南](./CONTRIBUTING.md)。
+
 ## 仓库结构
 
 ```
