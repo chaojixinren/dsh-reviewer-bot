@@ -75,7 +75,12 @@ export interface CommentSink extends ForgeGateway {
   createComment(target: ReviewTarget, body: string): Promise<CommentId>
   /** `repo` for the same reason as `DiffSource.fetchFile`: a `CommentId` alone is not routable. */
   updateComment(repo: string, id: CommentId, body: string): Promise<void>
-  createInlineComments(target: ReviewTarget, findings: readonly Finding[]): Promise<PublishStats>
+  /**
+   * `botId` is required so only the bot's own comments contribute idempotency
+   * keys: a marker written by anyone else is forgeable and must not suppress a
+   * finding.
+   */
+  createInlineComments(target: ReviewTarget, findings: readonly Finding[], botId: string): Promise<PublishStats>
   /**
    * Returns a sticky comment only when it was authored by `botId` AND carries
    * our own first-line marker. A forged marker must be ignored, never updated.

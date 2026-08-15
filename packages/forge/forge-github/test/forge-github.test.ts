@@ -30,6 +30,8 @@ const TARGET: ReviewTarget = {
   isFork: false,
 }
 
+const BOT_ID = '77'
+
 interface Call {
   readonly method: string
   readonly url: string
@@ -144,7 +146,7 @@ describe('createInlineComments', () => {
     ])
     const gateway = createGitHubGateway(config(), stub)
 
-    const stats = await gateway.createInlineComments(TARGET, [finding()])
+    const stats = await gateway.createInlineComments(TARGET, [finding()], BOT_ID)
 
     expect(stats).toEqual({ published: 1, degradedToSummary: 0, failed: 0 })
     const post = stub.calls.find((call) => call.method === 'POST')
@@ -164,7 +166,7 @@ describe('createInlineComments', () => {
     const gateway = createGitHubGateway(config(), stub)
     await gateway.createInlineComments(TARGET, [
       finding({ anchor: anchorAt('src/app.ts', 4, 'left') }),
-    ])
+    ], BOT_ID)
     expect(stub.calls.find((call) => call.method === 'POST')?.body)
       .toMatchObject({ side: 'LEFT' })
   })
@@ -177,16 +179,37 @@ describe('createInlineComments', () => {
       {
         match: commentsPath,
         method: 'GET',
-        json: [{ body: `**blocker**: whatever\n\n<!-- dshrb:key:${key} -->` }],
+        json: [{ body: `**blocker**: whatever\n\n<!-- dshrb:key:${key} -->`, user: { id: 77 } }],
       },
       { match: commentsPath, method: 'POST', json: { id: 2 } },
     ])
     const gateway = createGitHubGateway(config(), stub)
 
-    const stats = await gateway.createInlineComments(TARGET, [already])
+    const stats = await gateway.createInlineComments(TARGET, [already], BOT_ID)
 
     expect(stats).toEqual({ published: 0, degradedToSummary: 0, failed: 0 })
     expect(stub.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+  })
+
+  it('does not let a forged key from another author suppress a finding', async () => {
+    // A reader can compute a key and pre-seed it, but only the bot's own comment
+    // may count as "already published".
+    const target = finding()
+    const key = publishIdempotencyKey(target)
+    const stub = stubFetch([
+      {
+        match: commentsPath,
+        method: 'GET',
+        json: [{ body: `forged\n\n<!-- dshrb:key:${key} -->`, user: { id: 1234 } }],
+      },
+      { match: commentsPath, method: 'POST', json: { id: 8 } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+
+    const stats = await gateway.createInlineComments(TARGET, [target], BOT_ID)
+
+    expect(stats).toEqual({ published: 1, degradedToSummary: 0, failed: 0 })
+    expect(stub.calls.filter((call) => call.method === 'POST')).toHaveLength(1)
   })
 
   it('publishes only the findings a partial publish missed', async () => {
@@ -196,13 +219,13 @@ describe('createInlineComments', () => {
       {
         match: commentsPath,
         method: 'GET',
-        json: [{ body: `x\n\n<!-- dshrb:key:${publishIdempotencyKey(landed)} -->` }],
+        json: [{ body: `x\n\n<!-- dshrb:key:${publishIdempotencyKey(landed)} -->`, user: { id: 77 } }],
       },
       { match: commentsPath, method: 'POST', json: { id: 3 } },
     ])
     const gateway = createGitHubGateway(config(), stub)
 
-    const stats = await gateway.createInlineComments(TARGET, [landed, missed])
+    const stats = await gateway.createInlineComments(TARGET, [landed, missed], BOT_ID)
 
     expect(stats).toEqual({ published: 1, degradedToSummary: 0, failed: 0 })
     const posts = stub.calls.filter((call) => call.method === 'POST')
@@ -217,7 +240,7 @@ describe('createInlineComments', () => {
     ])
     const gateway = createGitHubGateway(config(), stub)
     const target = finding()
-    await gateway.createInlineComments(TARGET, [target])
+    await gateway.createInlineComments(TARGET, [target], BOT_ID)
 
     const post = stub.calls.find((call) => call.method === 'POST')
     const posted = (post?.body as { body: string } | undefined)?.body
@@ -231,7 +254,7 @@ describe('createInlineComments', () => {
     ])
     const gateway = createGitHubGateway(config(), stub)
 
-    const stats = await gateway.createInlineComments(TARGET, [finding(), finding()])
+    const stats = await gateway.createInlineComments(TARGET, [finding(), finding()], BOT_ID)
 
     expect(stats).toEqual({ published: 1, degradedToSummary: 0, failed: 0 })
     expect(stub.calls.filter((call) => call.method === 'POST')).toHaveLength(1)
@@ -246,7 +269,7 @@ describe('createInlineComments', () => {
 
     const stats = await gateway.createInlineComments(TARGET, [
       finding({ anchor: anchorFallback('src/app.ts', 12, 'outside every hunk') as Anchor }),
-    ])
+    ], BOT_ID)
 
     expect(stats).toEqual({ published: 0, degradedToSummary: 1, failed: 0 })
     expect(stub.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
@@ -272,9 +295,23 @@ describe('createInlineComments', () => {
     const stats = await gateway.createInlineComments(TARGET, [
       finding(),
       finding({ findingId: findingId('f-2'), anchor: anchorAt('src/b.ts', 3) }),
-    ])
+    ], BOT_ID)
 
     expect(stats).toEqual({ published: 1, degradedToSummary: 0, failed: 1 })
+  })
+})
+
+describe('extractIdempotencyKey', () => {
+  it('extracts the trailing authoritative key, not an earlier marker in the body', () => {
+    const forged = 'a'.repeat(64)
+    const real = 'b'.repeat(64)
+    const body = `finding quotes <!-- dshrb:key:${forged} --> inline\n\n<!-- dshrb:key:${real} -->`
+    expect(extractIdempotencyKey(body)).toBe(real)
+  })
+
+  it('ignores a marker buried in prose rather than appended as the authoritative key', () => {
+    const body = `note: <!-- dshrb:key:${'a'.repeat(64)} --> is quoted from untrusted content`
+    expect(extractIdempotencyKey(body)).toBeUndefined()
   })
 })
 
@@ -301,13 +338,13 @@ describe('isFork', () => {
     }
   })
 
-  it('does not infer a fork from a missing fork flag being falsy only', async () => {
+  it('fails closed to fork when the fork flag is absent', async () => {
     // `fork` absent on a present repo object means the API changed shape; the
     // provider must not silently report "trusted".
     const gateway = createGitHubGateway(config(), stubFetch([
       { match: '/pulls/42', json: { head: { repo: { owner: { login: 'acme' } } } } },
     ]))
-    expect(await gateway.isFork(TARGET)).toBe(false)
+    expect(await gateway.isFork(TARGET)).toBe(true)
   })
 })
 
@@ -374,6 +411,13 @@ describe('resolvePermission', () => {
     await expect(gateway.resolvePermission('acme/widgets', '../../orgs/acme'))
       .rejects.toThrow(TypeError)
     expect(stub.calls).toHaveLength(0)
+  })
+
+  it('accepts a GitHub App bot login and percent-encodes it in the path', async () => {
+    const stub = stubFetch([{ match: '/permission', json: { permission: 'none' } }])
+    const gateway = createGitHubGateway(config(), stub)
+    expect(await gateway.resolvePermission('acme/widgets', 'dependabot[bot]')).toBe('none')
+    expect(stub.calls[0]?.url).toContain('dependabot%5Bbot%5D')
   })
 })
 

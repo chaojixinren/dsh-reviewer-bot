@@ -47,7 +47,7 @@ export const STICKY_MARKER_PREFIX = '<!-- dshrb:sticky:'
 
 /** Carries the per-finding publish idempotency key inside a posted comment. */
 const IDEMPOTENCY_MARKER_PREFIX = '<!-- dshrb:key:'
-const IDEMPOTENCY_MARKER_RE = /<!--\s*dshrb:key:([0-9a-f]{64})\s*-->/u
+const IDEMPOTENCY_MARKER_RE = /<!--\s*dshrb:key:([0-9a-f]{64})\s*-->\s*$/u
 
 /** Bounds pagination so a pathological PR cannot spin forever. */
 const MAX_PAGES = 20
@@ -123,7 +123,10 @@ function assertPullNumber(raw: string): string {
 
 function assertLogin(login: string): string {
   const trimmed = login.trim()
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/u.test(trimmed)) {
+  // GitHub App actors render as `name[bot]` (e.g. `dependabot[bot]`); rejecting
+  // them here would hard-fail resolvePermission instead of failing closed to
+  // `none`. Brackets are still safe path segments (no `/`, `?`, `#`, `%`).
+  if (!/^[A-Za-z0-9][A-Za-z0-9[\]-]{0,38}$/u.test(trimmed)) {
     throw new TypeError(`github: invalid actor login '${excerpt(login)}'`)
   }
   return trimmed
@@ -410,8 +413,10 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
 
   /**
    * Posts one inline review comment per finding, skipping any finding whose
-   * idempotency key is already present on the PR. That makes a retry after a
-   * partial publish a no-op for the comments that already landed.
+   * idempotency key is already present on the PR in a comment authored by the
+   * bot. That makes a retry after a partial publish a no-op for the comments
+   * that already landed, without letting a reader pre-seed a key to suppress a
+   * finding.
    *
    * An unanchored finding is never posted inline — a misplaced comment is worse
    * than a summary entry — and is counted in `degradedToSummary` so the caller
@@ -419,15 +424,23 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
    * failure increments `failed` and does not abort the remaining findings.
    */
   async function createInlineComments(
-    target: ReviewTarget, findings: readonly Finding[],
+    target: ReviewTarget, findings: readonly Finding[], botId: string,
   ): Promise<PublishStats> {
     const repo = assertRepo(target.repo)
     const number = assertPullNumber(target.changeRequestId)
 
-    interface RawReviewComment { body?: unknown }
+    interface RawReviewComment { body?: unknown; user?: { id?: unknown } | null }
     const existing = await getPaged<RawReviewComment>(`/repos/${repo}/pulls/${number}/comments`)
     const publishedKeys = new Set<string>()
     for (const comment of existing) {
+      // Only our own comments carry authoritative keys. A marker written by
+      // anyone else is forgeable — a reader could pre-seed a key and suppress
+      // the finding it belongs to — so non-bot comments are ignored (the same
+      // author gate as findStickyComment).
+      const authorId = comment.user?.id
+      if (authorId === undefined || authorId === null || String(authorId) !== botId) {
+        continue
+      }
       const key = extractIdempotencyKey(comment.body)
       if (key !== undefined) {
         publishedKeys.add(key)
@@ -498,7 +511,7 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
   // -- ActorResolver --------------------------------------------------------
 
   async function resolvePermission(repo: string, actorLogin: string): Promise<ForgePermission> {
-    const path = `/repos/${assertRepo(repo)}/collaborators/${assertLogin(actorLogin)}/permission`
+    const path = `/repos/${assertRepo(repo)}/collaborators/${encodeURIComponent(assertLogin(actorLogin))}/permission`
     try {
       const raw = await getJson<{ permission?: unknown }>(path)
       return mapPermission(raw.permission)
@@ -526,7 +539,13 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
     if (headRepo === undefined || headRepo === null) {
       return true
     }
-    return headRepo.fork === true
+    // `fork` must be an explicit boolean. A missing flag (or an unexpected type)
+    // means the API shape changed; fail closed to `fork` rather than reporting a
+    // potentially untrusted branch as trusted.
+    if (typeof headRepo.fork !== 'boolean') {
+      return true
+    }
+    return headRepo.fork
   }
 
   /** Returns the numeric id as identity, since logins can be renamed. */
