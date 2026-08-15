@@ -6,10 +6,12 @@
  * Each stage is `(input, deps) => Promise<output>` and unit-testable without a
  * network. Only the `reason` stage is non-deterministic.
  */
+import { findingId, isSafeRelativePath, narrowProposal, toDiscarded } from '@dshrb/review-core'
 import type {
-  Failure, Finding, NormalizedEvent, Phase, RawProposal, ReviewRequest,
-  ReviewResult, ReviewIntent, ReviewTarget,
+  DiscardedProposal, Failure, Finding, NormalizedEvent, Phase, RawProposal,
+  ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
 } from '@dshrb/review-core'
+import { createAnchorResolver, publishIdempotencyKey } from '@dshrb/forge'
 import type { ForgeRegistry, UnifiedDiff } from '@dshrb/forge'
 import type { Rule } from '@dshrb/rule-registry'
 import type { Context } from '@deepseek-ai/cordis'
@@ -84,16 +86,112 @@ export function assembleContext(
 export function reason(_bounded: BoundedContext): Promise<readonly RawProposal[]> {
   throw new Error('not implemented: reason (M1)')
 }
+
+// --- Validation -------------------------------------------------------------
+
+/** Cap on the rendered comment text. Exceeding a cap is a rejection, not a
+ *  truncation: chopping a code excerpt mid-line corrupts the finding. */
+const MAX_TITLE_CHARS = 200
+const MAX_BODY_CHARS = 8000
+
+/** Caps untrusted text before it lands in a rejection reason. */
+function excerpt(value: string): string {
+  return value.length > 60 ? `${value.slice(0, 60)}…` : value
+}
+
+/** Finds the cited rule, used only for its `requiresScenario` flag. */
+function findRule(rules: readonly Rule[], rawRuleId: string | undefined): Rule | undefined {
+  const id = (rawRuleId ?? '').trim()
+  return id === '' ? undefined : rules.find((rule) => rule.id === id)
+}
+
+/** True when a finding would render a comment beyond the configured caps. */
+function exceedsSizeCap(finding: Finding): boolean {
+  return finding.title.length > MAX_TITLE_CHARS || finding.body.length > MAX_BODY_CHARS
+}
+
 /**
  * Turns untrusted proposals into publishable findings: schema check, path
  * normalization, diff-line anchoring, size caps, dedupe, and the blocker
  * failureScenario requirement. Rejections are reported, not swallowed.
+ *
+ * Order matters: the path is normalized BEFORE anchoring (anchoring a raw
+ * `../` path would silently land on the wrong file), and dedupe runs on the
+ * shared `publishIdempotencyKey` so it agrees with what publish dedupes. The
+ * blocker-requires-`failureScenario` downgrade happens inside `narrowProposal`
+ * via `effectiveSeverity` — the #6 invariant helper.
  */
 export function validate(
-  _proposals: readonly RawProposal[], _diff: UnifiedDiff, _rules: readonly Rule[],
-): { findings: readonly Finding[]; discarded: readonly { reason: string; rawTitle: string }[] } {
-  throw new Error('not implemented: validate (M1)')
+  proposals: readonly RawProposal[], diff: UnifiedDiff, rules: readonly Rule[],
+): { findings: readonly Finding[]; discarded: readonly DiscardedProposal[] } {
+  const resolver = createAnchorResolver()
+  const findings: Finding[] = []
+  const discarded: DiscardedProposal[] = []
+  const seen = new Set<string>()
+
+  for (const [index, raw] of proposals.entries()) {
+    // 1. Path normalization + line validation, before anchoring.
+    const title = excerpt((raw.title ?? '').trim())
+    const path = (raw.path ?? '').trim()
+    if (path === '') {
+      discarded.push(toDiscarded(raw, { ok: false, reason: 'missing-path', message: `proposal '${title}' names no file` }))
+      continue
+    }
+    if (!isSafeRelativePath(path)) {
+      discarded.push(toDiscarded(raw, { ok: false, reason: 'unsafe-path', message: `path '${excerpt(path)}' is not repo-relative` }))
+      continue
+    }
+    const line = raw.line
+    if (typeof line !== 'number' || !Number.isInteger(line) || line <= 0) {
+      discarded.push(toDiscarded(raw, { ok: false, reason: 'invalid-line', message: `proposal '${title}' has no usable line number` }))
+      continue
+    }
+
+    // 2. Hunk anchoring — a miss degrades to a fallback anchor, never a drop.
+    const anchor = resolver.resolve(diff, path, line)
+
+    // 3. Schema check + blocker downgrade. `narrowProposal` applies
+    //    `effectiveSeverity`, the #6 invariant helper that demotes a
+    //    scenario-less blocker (and any `requiresScenario` rule hit) one step.
+    const cited = findRule(rules, raw.ruleId)
+    const narrowed = narrowProposal(raw, {
+      findingId: findingId(`f${index + 1}`),
+      anchor,
+      ...(cited?.requiresScenario === true ? { requiresScenario: true } : {}),
+    })
+    if (!narrowed.ok) {
+      discarded.push(toDiscarded(raw, narrowed))
+      continue
+    }
+    const finding = narrowed.value
+
+    // 4. Size cap.
+    if (exceedsSizeCap(finding)) {
+      discarded.push({
+        reason: `size-cap: title exceeds ${MAX_TITLE_CHARS} chars or body exceeds ${MAX_BODY_CHARS} chars`,
+        rawTitle: excerpt(finding.title),
+      })
+      continue
+    }
+
+    // 5. Dedupe on the publish idempotency key (path + anchor + ruleId), so a
+    //    proposal repeated across shards collapses here, not at publish time.
+    const key = publishIdempotencyKey(finding)
+    if (seen.has(key)) {
+      discarded.push({
+        reason: `duplicate: collapses onto ${finding.anchor.path}:${finding.anchor.line} (${finding.ruleId ?? 'no rule'})`,
+        rawTitle: excerpt(finding.title),
+      })
+      continue
+    }
+    seen.add(key)
+
+    findings.push(finding)
+  }
+
+  return { findings, discarded }
 }
+
 export function publish(
   _target: ReviewTarget, _findings: readonly Finding[], _deps: StageDeps,
 ): Promise<void> {
