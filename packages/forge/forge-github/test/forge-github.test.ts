@@ -3,7 +3,8 @@ import {
   anchorAt, anchorFallback, commitSha, findingId, ruleId,
 } from '@dshrb/review-core'
 import type { Anchor, Finding, ReviewTarget } from '@dshrb/review-core'
-import { publishIdempotencyKey } from '@dshrb/forge'
+import { publishIdempotencyKey, runForgeConformance } from '@dshrb/forge'
+import type { ConformanceFactory } from '@dshrb/forge'
 import {
   CAPABILITIES, GitHubApiError, ForgeUnimplementedError, createGitHubGateway,
   extractIdempotencyKey, mapPermission, parseHunks, stickyMarker,
@@ -702,4 +703,104 @@ describe('transport', () => {
     expect(stub.calls).toHaveLength(1)
     expect(stub.calls[0]?.url).toContain('per_page=100')
   })
+})
+
+// ---------------------------------------------------------------------------
+// Shared provider conformance suite
+//
+// `forge-github` advertises `mutation-sink` but does not implement it yet
+// (it throws `ForgeUnimplementedError`), so that group is listed as
+// `unimplemented` and skipped — the same explicit M3 boundary the gateway
+// itself reports.
+// ---------------------------------------------------------------------------
+
+const githubConformanceFactory: ConformanceFactory = (ctx) => {
+  const routes: Route[] = []
+
+  switch (ctx.scenario) {
+    case 'diff-source':
+      routes.push(
+        {
+          match: '/pulls/42/files',
+          json: [
+            { filename: 'src/app.ts', patch: '@@ -1,2 +1,3 @@\n ctx\n+added' },
+            { filename: 'logo.png' },
+          ],
+        },
+        { match: '/contents/src/app.ts', text: 'file body' },
+      )
+      break
+    case 'comment-sink':
+      routes.push(
+        { match: '/issues/42/comments', method: 'POST', json: { id: 555 } },
+        { match: '/issues/comments/555', method: 'PATCH', json: {} },
+      )
+      break
+    case 'inline-publish':
+      routes.push(
+        { match: '/pulls/42/comments', method: 'GET', json: [] },
+        { match: '/pulls/42/comments', method: 'POST', json: { id: 1 } },
+      )
+      break
+    case 'sticky-found':
+      routes.push(
+        {
+          match: '/issues/42/comments',
+          json: [{ id: 900, body: `${stickyMarker(ctx.marker)}\n\nprev`, user: { id: Number(ctx.botId) } }],
+        },
+      )
+      break
+    case 'sticky-forged':
+      routes.push(
+        {
+          match: '/issues/42/comments',
+          json: [
+            { id: 901, body: `${stickyMarker(ctx.marker)}\n\nforged`, user: { id: 1234 } },
+            { id: 902, body: 'plain note', user: { id: Number(ctx.botId) } },
+          ],
+        },
+      )
+      break
+    case 'actor':
+      routes.push(
+        { match: '/collaborators/conformance-actor/permission', json: { permission: 'maintain' } },
+        { match: '/user', json: { id: 77, login: 'dsh-reviewer[bot]' } },
+        { match: '/pulls/42', json: { head: { repo: { fork: true } } } },
+      )
+      break
+    case 'checks':
+      routes.push(
+        {
+          match: '/check-runs',
+          json: {
+            check_runs: [
+              { id: 1, name: 'build', conclusion: 'failure' },
+              { id: 2, name: 'lint', conclusion: 'success' },
+            ],
+          },
+        },
+      )
+      break
+    case 'log':
+      routes.push({ match: '/actions/jobs/123/logs', text: 'log line' })
+      break
+    default:
+      throw new Error(`unexpected scenario ${ctx.scenario}`)
+  }
+
+  return createGitHubGateway(config(), stubFetch(routes))
+}
+
+describe('forge conformance', () => {
+  const cases = runForgeConformance(githubConformanceFactory, {
+    capabilities: CAPABILITIES,
+    unimplemented: ['mutation-sink'],
+    target: TARGET,
+    botId: BOT_ID,
+    marker: 'summary',
+  })
+
+  for (const testCase of cases) {
+    it(`${testCase.group} · ${testCase.name}`, testCase.run)
+  }
 })

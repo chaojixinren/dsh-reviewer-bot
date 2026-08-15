@@ -35,6 +35,9 @@ importers:
       '@dshrb/forge-github':
         specifier: workspace:0.1.0
         version: link:../packages/forge/forge-github
+      '@dshrb/forge-gitlab':
+        specifier: workspace:0.1.0
+        version: link:../packages/forge/forge-gitlab
       '@dshrb/progress':
         specifier: workspace:0.1.0
         version: link:../packages/core/progress

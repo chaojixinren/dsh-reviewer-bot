@@ -3,15 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  anchorAt, anchorFallback, commitSha, findingId,
-} from '@dshrb/review-core'
+import { anchorAt, anchorFallback, commitSha, findingId } from '@dshrb/review-core'
 import type { CommentId, Finding, ReviewTarget } from '@dshrb/review-core'
+import { runForgeConformance } from '@dshrb/forge'
+import type { ConformanceFactory } from '@dshrb/forge'
 import {
   CAPABILITIES, COMMENT_PREFIX, NoChangesToCommitError,
   createLocalDeps, createLocalGateway, parseGitDiff, parseHunks,
 } from '../src/index.ts'
-import type { Config, FileReader, GitRunner, LineWriter } from '../src/index.ts'
+import type { Config, FileReader, GitRunner, LineWriter, LocalDeps } from '../src/index.ts'
 
 /**
  * Every unit test drives the provider through stubbed `git` / `readFile` /
@@ -580,4 +580,58 @@ describe('real git fixture', () => {
     expect(diff.files.map((file) => file.path)).toEqual([name])
     expect(diff.files[0]?.binary).toBe(true)
   })
+})
+
+// ---------------------------------------------------------------------------
+// Shared provider conformance suite
+//
+// `forge-local` runs every group it declares (`diff-source`, `comment-sink`,
+// `inline-comments`, `actor-resolver`, `mutation-sink`); `sticky-comment` and
+// `check-reader` are deliberately NOT declared, so those groups are skipped.
+// ---------------------------------------------------------------------------
+
+const localConformanceFactory: ConformanceFactory = (ctx) => {
+  let gitOutput = ''
+  const deps: LocalDeps = {
+    git: async (args) => {
+      const joined = args.join(' ')
+      if (joined === 'rev-parse HEAD') return 'd'.repeat(40)
+      if (joined.startsWith('rev-parse --verify')) return '' // branch exists → checkout
+      if (joined === 'diff --cached --name-only') return 'src/app.ts\n'
+      if (joined.startsWith('add ')) return ''
+      if (joined.startsWith('commit ')) return ''
+      if (joined.startsWith('checkout')) return ''
+      return gitOutput
+    },
+    readFile: async (relPath) => `content of ${relPath}`,
+    write: () => {},
+  }
+
+  if (ctx.scenario === 'diff-source') {
+    gitOutput = [
+      'diff --git a/src/app.ts b/src/app.ts',
+      '--- a/src/app.ts',
+      '+++ b/src/app.ts',
+      '@@ -1,1 +1,2 @@',
+      '-a',
+      '+b',
+      '+c',
+      '',
+    ].join('\n')
+  }
+
+  return createLocalGateway(config(), deps)
+}
+
+describe('forge conformance', () => {
+  const cases = runForgeConformance(localConformanceFactory, {
+    capabilities: CAPABILITIES,
+    target: target(),
+    botId: 'local',
+    marker: 'summary',
+  })
+
+  for (const testCase of cases) {
+    it(`${testCase.group} · ${testCase.name}`, testCase.run)
+  }
 })
