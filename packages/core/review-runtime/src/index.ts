@@ -1561,6 +1561,7 @@ export async function runReview(
   let intent: ReviewIntent | undefined
   let request: ReviewRequest | undefined
   let deactivateTrust: (() => void) | undefined
+  let unbindWriteContext: (() => void) | undefined
   let replayId: string | undefined
   let snapshotError: string | undefined
   // Hoisted so a mutate-stage failure that follows a successful publish can
@@ -1611,6 +1612,13 @@ export async function runReview(
     phase = 'context'
     const diffSource = deps.forges.require<DiffSource>(event.forgeId, ['diff-source'])
     const diff = await diffSource.fetchDiff(event.target)
+    // Feed the write guard the change-set facts it needs for lockfile↔manifest
+    // pairing and binary detection, before the agent (and any `propose_patch`
+    // call) runs. The guard is pure and reads only these bound facts.
+    unbindWriteContext = deps.trustPolicy.bindWriteContext({
+      changedPaths: diff.files.map((file) => file.path),
+      binaryPaths: diff.files.filter((file) => file.binary).map((file) => file.path),
+    })
     // `diagnose` shares the review pipeline (reason → validate → publish) but
     // assembles its context from the failed CI checks instead of only the diff:
     // the agent reads each check log through `read_check_log` and proposes
@@ -1752,6 +1760,7 @@ export async function runReview(
     }, failure)
   } finally {
     deactivateTrust?.()
+    unbindWriteContext?.()
     clearTimeout(timer)
   }
 }

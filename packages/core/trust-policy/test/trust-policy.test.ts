@@ -15,8 +15,9 @@ import {
   resolveTrust,
   toolRestrictionFor,
   visibleTools,
+  writeRedLineViolation,
 } from '../src/index.ts'
-import type { ActorContext, Config, TrustInput } from '../src/index.ts'
+import type { ActorContext, Config, TrustInput, WriteRedLine } from '../src/index.ts'
 
 /**
  * Trust resolution is a security boundary, so these tests assert what is
@@ -288,6 +289,18 @@ describe('decideToolCall', () => {
     expect(decision?.kind).toBe('deny')
   })
 
+  it('denies a write tool when the actor lacks write permission', () => {
+    // `@dsr fix` needs actor permission AND allowWrite; a reader with the opt-in
+    // on is still refused on the permission condition, not the config one.
+    const decision = decideToolCall(
+      input({ permission: 'read', intent: 'fix', allowWrite: true }),
+      'propose_patch',
+    )
+    expect(decision?.kind).toBe('deny')
+    if (decision?.kind !== 'deny') throw new Error('expected deny')
+    expect(decision.reason).toMatch(/permission/)
+  })
+
   it('abstains on a tool it does not govern, so other plugins keep their say', () => {
     expect(decideToolCall(input({ permission: 'admin' }), 'some_other_plugin_tool')).toBeUndefined()
   })
@@ -420,3 +433,136 @@ describe('tool whitelist parity (M2)', () => {
     }
   })
 })
+
+describe('writeRedLineViolation', () => {
+  const PROTECTED = ['.github/**', '.gitlab-ci.yml', '.circleci/**', 'Jenkinsfile']
+
+  function redLine(over: Partial<WriteRedLine> = {}): WriteRedLine {
+    return {
+      path: 'src/index.ts',
+      diff: '@@ -1,1 +1,1 @@\n- old\n+ new\n',
+      changedPaths: ['src/index.ts'],
+      binaryPaths: [],
+      ...over,
+    }
+  }
+
+  // Every red line must have at least one negative (deny) case. The deny reason
+  // is a non-empty string; `undefined` would be an abstention, which is a miss.
+  const denials: readonly { name: string; write: WriteRedLine }[] = [
+    {
+      name: 'path traversal with ..',
+      write: redLine({ path: '../../etc/passwd' }),
+    },
+    {
+      name: 'absolute path',
+      write: redLine({ path: '/etc/passwd' }),
+    },
+    {
+      name: 'windows drive path',
+      write: redLine({ path: 'C:\\Windows\\system32\\x' }),
+    },
+    {
+      name: 'NUL byte in path',
+      write: redLine({ path: 'src/a\0.ts' }),
+    },
+    {
+      name: 'protected .github/**',
+      write: redLine({ path: '.github/workflows/ci.yml' }),
+    },
+    {
+      name: 'protected Jenkinsfile',
+      write: redLine({ path: 'Jenkinsfile' }),
+    },
+    {
+      name: 'protected .gitlab-ci.yml',
+      write: redLine({ path: '.gitlab-ci.yml' }),
+    },
+    {
+      name: 'binary file',
+      write: redLine({ path: 'assets/logo.png', binaryPaths: ['assets/logo.png'] }),
+    },
+    {
+      name: 'package.json scripts field',
+      write: redLine({ path: 'package.json', diff: '@@ -1,1 +1,1 @@\n- "scripts": {\n+ "scripts": {\n' }),
+    },
+    {
+      name: 'lockfile without a matching manifest change',
+      write: redLine({ path: 'pnpm-lock.yaml', changedPaths: ['src/index.ts'] }),
+    },
+  ]
+
+  for (const { name, write } of denials) {
+    it(`denies ${name}`, () => {
+      const denial = writeRedLineViolation(write, PROTECTED)
+      expect(denial, name).toBeTypeOf('string')
+      if (typeof denial !== 'string') throw new Error(`expected a denial for ${name}`)
+      expect(denial.length, name).toBeGreaterThan(0)
+    })
+  }
+
+  it('allows a normal source-file write', () => {
+    expect(writeRedLineViolation(redLine(), PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a package.json change that does not touch scripts (field-level)', () => {
+    const write = redLine({
+      path: 'package.json',
+      diff: '@@ -1,1 +1,1 @@\n- "dependencies": {\n+ "dependencies": {\n',
+    })
+    expect(writeRedLineViolation(write, PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a lockfile when the same request also changes its manifest', () => {
+    const write = redLine({
+      path: 'packages/core/pnpm-lock.yaml',
+      changedPaths: ['packages/core/package.json', 'packages/core/pnpm-lock.yaml'],
+    })
+    expect(writeRedLineViolation(write, PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a path not in the binary list', () => {
+    expect(writeRedLineViolation(redLine({ path: 'assets/logo.svg' }), PROTECTED)).toBeUndefined()
+  })
+
+  it('uses config.protectedPaths, not a hardcoded list', () => {
+    // A maintainer-supplied protected path must take effect; a path that only
+    // matches a pattern NOT configured is allowed.
+    expect(writeRedLineViolation(redLine({ path: 'SECRETS.md' }), ['SECRETS.md'])).toBeTypeOf('string')
+    expect(writeRedLineViolation(redLine({ path: 'SECRETS.md' }), PROTECTED)).toBeUndefined()
+  })
+
+  it('denial is terminal: a later listener cannot re-grant a matched red line', () => {
+    // The guard contract is `string | undefined` — a non-empty string denies,
+    // `undefined` abstains. There is no `allow` arm, so once a red line matches
+    // the only outcomes are a reason (denied) or an abstention for a different
+    // write; nothing can flip a denial back to permission. Re-evaluating the
+    // same facts under a SUPERSET protected list still refuses, which is the
+    // closest pure-function encoding of "a later listener can only add denials".
+    for (const { name, write } of denials) {
+      const first = writeRedLineViolation(write, PROTECTED)
+      const second = writeRedLineViolation(write, [...PROTECTED, 'extra/**'])
+      expect(first, name).toBeTypeOf('string')
+      expect(second, name).toBeTypeOf('string')
+    }
+  })
+})
+
+describe('createTrustPolicy write context', () => {
+  function config(over: Partial<Config> = {}): Config {
+    return { allowWrite: false, protectedPaths: [], ...over }
+  }
+
+  it('binds and restores the change-set facts the write guard reads', () => {
+    const policy = createTrustPolicy(config())
+    expect(policy.writeContext).toBeUndefined()
+
+    const context = { changedPaths: ['package.json'], binaryPaths: ['img.png'] }
+    const dispose = policy.bindWriteContext(context)
+    expect(policy.writeContext).toBe(context)
+
+    dispose()
+    expect(policy.writeContext).toBeUndefined()
+  })
+})
+
