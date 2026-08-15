@@ -248,6 +248,22 @@ importers:
         specifier: 4.0.1
         version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
 
+  packages/forge/forge-local:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.1
+        version: 3.18.1
+      '@dshrb/forge':
+        specifier: workspace:*
+        version: link:../../core/forge
+      '@dshrb/review-core':
+        specifier: workspace:*
+        version: link:../../core/review-core
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+
   packages/probe/signature-probe:
     dependencies:
       '@deepseek-ai/schemastery':
