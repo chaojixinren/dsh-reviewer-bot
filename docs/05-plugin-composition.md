@@ -7,7 +7,7 @@ DSH 官方 [extension-cookbook](https://github.com/deepseek-ai/deepseek-harness/
 | 我们的功能 | 使用的扩展点 |
 |---|---|
 | 注册评审工具（读 diff / 提 finding / 提补丁） | `ctx.tools.register()` + `defineTool()` |
-| 信任门禁（allow / deny / ask） | `ctx.on('tools/pre-execute')` 返回 `PreToolDecision` |
+| 信任门禁（allow / deny） | `ctx.on('tools/pre-execute')` 返回 `PreToolDecision` |
 | 写模式硬红线（CI 配置、scripts、二进制） | `ctx.tools.guard()` 单调终局拒绝 |
 | 工具可见集随信任等级收窄 | 作用域内 `ctx.tools.restrict()` 注册 |
 | 评审准则 / 规则集注入 system prompt | `ctx.systemPrompt.section()`（带排序与作用域遮蔽） |

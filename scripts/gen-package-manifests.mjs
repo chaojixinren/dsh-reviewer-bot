@@ -34,6 +34,7 @@ const DSH = '0.1.0-rc.6'
  * injects systemPrompt, so anything using ctx.tools needs both present.
  */
 const UPSTREAM = {
+  'trust-policy': ['dsh-tools', 'dsh-system-prompt'],
   'tool-review': ['dsh-tools', 'dsh-system-prompt'],
   'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm'],
 }
