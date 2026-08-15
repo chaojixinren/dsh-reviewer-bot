@@ -177,6 +177,21 @@ export interface WriteResult {
   readonly validation: ValidationReport
 }
 
+/**
+ * Honest report of the write-mode sandbox actually in effect for a run
+ * (docs/07 line 95). Derived from the resolved `SandboxExecutionPolicy` and the
+ * fs backend's own advertised mode — never fabricated, so a bare (non-sandboxing)
+ * fs backend is reported as such instead of claiming confinement that is not there.
+ */
+export interface IsolationProfile {
+  /** The mode the sandbox policy resolved to for this run. */
+  readonly mode: 'read-only' | 'workspace-write' | 'danger-full-access'
+  /** The fs backend's default sandbox mode; absent when it never confines. */
+  readonly fsMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  /** True only when the fs backend actually fences mutations. */
+  readonly fsFencesMutations: boolean
+}
+
 export interface Verdict {
   readonly status: ReviewStatus
   readonly findingsCount: number
@@ -205,6 +220,8 @@ export interface ReviewResult {
   /** Human-readable summary, untrusted — pass via env, never into a shell. */
   readonly summary?: string
   readonly write?: WriteResult
+  /** Write-mode sandbox profile; absent for read-only runs. */
+  readonly isolation?: IsolationProfile
   readonly failure?: Failure
   readonly stickyCommentId?: CommentId
   /** Snapshot id for `dshrb replay`. Absent until B4 snapshots land. */
@@ -238,6 +255,17 @@ export interface DiscardedProposal {
 }
 
 /**
+ * A standalone patch proposal from `propose_patch` — a path plus a unified diff,
+ * with no finding attached. Like `RawProposal`, every field is optional and
+ * unbranded so nothing is consumed without passing through `narrowPatchProposal`
+ * (the patch arm of the `narrowProposal` channel) first.
+ */
+export interface RawPatch {
+  readonly path?: string | undefined
+  readonly diff?: string | undefined
+}
+
+/**
  * Untrusted model output before validation. Deliberately loose: every field is
  * optional and unbranded, so nothing can be consumed without passing through
  * `narrowProposal` first.
@@ -256,7 +284,7 @@ export interface RawProposal {
   readonly line?: number | undefined
   readonly ruleId?: string | undefined
   readonly failureScenario?: string | undefined
-  readonly patch?: { path?: string | undefined; diff?: string | undefined } | undefined
+  readonly patch?: RawPatch | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -595,7 +623,7 @@ export function narrowProposal(raw: RawProposal, input: NarrowProposalInput): Na
 }
 
 /** Called only when the proposal actually suggested a patch. */
-function narrowPatch(raw: NonNullable<RawProposal['patch']>): Narrowed<Patch> {
+function narrowPatch(raw: RawPatch): Narrowed<Patch> {
   const path = (raw.path ?? '').trim()
   if (path === '' || !isSafeRelativePath(path)) {
     return rejected('invalid-patch', `suggested patch has an unusable path '${excerpt(path)}'`)
@@ -607,6 +635,17 @@ function narrowPatch(raw: NonNullable<RawProposal['patch']>): Narrowed<Patch> {
     return rejected('invalid-patch', `suggested patch for '${excerpt(path)}' has an empty diff`)
   }
   return { ok: true, value: { path, diff } }
+}
+
+/**
+ * Narrows a standalone `propose_patch` proposal to a `Patch`. This is the same
+ * patch arm `narrowProposal` runs for a finding's `suggestedPatch`, surfaced for
+ * the write-mode channel where a patch is proposed without a finding. Rejections
+ * carry the `invalid-patch` machine-readable code so a bad patch lands in
+ * `ReviewResult.discarded` rather than being treated as a crash.
+ */
+export function narrowPatchProposal(raw: RawPatch): Narrowed<Patch> {
+  return narrowPatch(raw)
 }
 
 function rejected(reason: ProposalRejection, message: string): Rejected {

@@ -170,6 +170,17 @@ describe('buildOutputs', () => {
     expect(envelope.rules).toEqual([])
     expect(envelope.isolation).toBeNull()
   })
+
+  it('reports the write-mode isolation profile verbatim instead of fabricating it', () => {
+    const envelope = buildResultJson(resultFixture({
+      isolation: { mode: 'workspace-write', fsMode: 'workspace-write', fsFencesMutations: true },
+    }))
+    expect(envelope.isolation).toEqual({
+      mode: 'workspace-write',
+      fsMode: 'workspace-write',
+      fsFencesMutations: true,
+    })
+  })
 })
 
 // --- writeOutputs -----------------------------------------------------------

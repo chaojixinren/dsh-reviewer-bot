@@ -5,6 +5,7 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import {
   M1_TOOL_NAMES,
   TOOL_NAMES,
+  createProposePatchTool,
   createReviewToolRuntime,
   createReviewTools,
 } from '../src/index.ts'
@@ -65,14 +66,43 @@ function findTool(deps: ReviewToolDeps, name: string) {
 }
 
 describe('createReviewTools', () => {
-  it('registers exactly the five M1 tools and defers propose_patch', () => {
+  it('registers exactly the five M1 tools and keeps propose_patch separate', () => {
     const tools = createReviewTools(makeDeps(makeContext()))
     const names = tools.map((tool) => tool.name).sort()
     expect(names).toEqual([...M1_TOOL_NAMES].sort())
     expect(names).not.toContain('propose_patch')
-    // The full inventory keeps propose_patch listed for M3, but registration
-    // stays read/propose only until then.
+    // propose_patch is built separately and registered only when enabled.
     expect(TOOL_NAMES).toContain('propose_patch')
+    expect(createProposePatchTool().name).toBe('propose_patch')
+  })
+})
+
+describe('propose_patch', () => {
+  it('returns a receipt and performs no write', async () => {
+    const tool = createProposePatchTool()
+    const value = await tool.execute(
+      { path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' },
+      fakeExec(new AbortController().signal),
+    )
+    expect(value).toEqual({ received: true, path: 'src/a.ts' })
+  })
+
+  it('rejects an unsafe path before anything is recorded', async () => {
+    const tool = createProposePatchTool()
+    await expect(tool.execute(
+      { path: '../outside.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' },
+      fakeExec(new AbortController().signal),
+    )).rejects.toThrow(/safe repo-relative/)
+  })
+
+  it('honors exec.signal', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const tool = createProposePatchTool()
+    await expect(tool.execute(
+      { path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' },
+      fakeExec(controller.signal),
+    )).rejects.toThrow()
   })
 })
 

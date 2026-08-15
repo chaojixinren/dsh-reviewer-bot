@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
 import type {
-  Failure, Finding, NormalizedEvent, RawProposal, ReviewIntent, ReviewResult, ReviewTarget,
+  Failure, Finding, NormalizedEvent, RawProposal, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget,
 } from '@dshrb/review-core'
 import { createForgeRegistry } from '@dshrb/forge'
 import type {
@@ -11,12 +11,14 @@ import type {
 import type { Rule } from '@dshrb/rule-registry'
 import { createTrustPolicy } from '@dshrb/trust-policy'
 import type { TrustPolicy } from '@dshrb/trust-policy'
+import type { FsPathInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
-  assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
-  deriveReplayId, ingest, parseReplaySnapshot, renderDiagnoseContext, report, route, runReview,
-  shardDiff, SNAPSHOT_VERSION, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
+  applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
+  deriveReplayId, ingest, mutate, narrowPatches, parseReplaySnapshot, renderDiagnoseContext, report, route,
+  runReview, shardDiff, SNAPSHOT_VERSION, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
 } from '../src/index.ts'
-import type { Config, ReplaySnapshot, StageDeps } from '../src/index.ts'
+import type { AgentOutput, Config, ReplaySnapshot, StageDeps, WriteFs } from '../src/index.ts'
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -102,7 +104,7 @@ function depsFixture(over: Partial<StageDeps> = {}): StageDeps {
     matchRules: () => [ruleFixture()],
     memory: [],
     trustPolicy: trustPolicyFixture(),
-    runAgent: async () => [],
+    runAgent: async () => ({ proposals: [], patches: [] }),
     ...over,
   }
 }
@@ -470,11 +472,190 @@ describe('report', () => {
   })
 })
 
+// --- applyUnifiedDiff / narrowPatches / mutate ------------------------------
+
+function writeFsFixture(over: Partial<WriteFs> = {}): WriteFs {
+  return {
+    sandboxMode: undefined,
+    resolve: async (path) => ({ targetKey: `key:${path}`, displayPath: path }) as unknown as FsTarget,
+    lstat: async () => undefined,
+    readText: async () => '',
+    writeText: async (_target, content) => ({ operation: 'create', version: undefined, before: null, after: content }) as unknown as FsWriteOutcome,
+    ...over,
+  }
+}
+
+const WORKSPACE_POLICY: SandboxExecutionPolicy = { mode: 'workspace-write', workspaceRoot: '/work' }
+
+function writeDepsFixture(over: Partial<StageDeps> = {}): StageDeps {
+  return depsFixture({
+    fs: writeFsFixture(),
+    sandboxPolicy: () => WORKSPACE_POLICY,
+    ...over,
+  })
+}
+
+async function writeRequestFixture(): Promise<ReviewRequest> {
+  const event = await ingest(prPayload(), depsFixture())
+  const { request } = await authorize(event, 'fix', depsFixture({ allowWrite: true }))
+  return request
+}
+
+describe('applyUnifiedDiff', () => {
+  it('applies a single replacement hunk', () => {
+    const result = applyUnifiedDiff('a\nb\nc\n', '@@ -2,1 +2,1 @@\n-b\n+B\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nB\nc\n')
+  })
+
+  it('applies multiple hunks in order', () => {
+    const result = applyUnifiedDiff('a\nb\nc\nd\n', '@@ -1,1 +1,1 @@\n-a\n+A\n@@ -4,1 +4,1 @@\n-d\n+D\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('A\nb\nc\nD\n')
+  })
+
+  it('creates a new file from a -0,0 hunk', () => {
+    const result = applyUnifiedDiff('', '@@ -0,0 +1,2 @@\n+foo\n+bar\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('foo\nbar\n')
+  })
+
+  it('fails instead of guessing when context does not match', () => {
+    const result = applyUnifiedDiff('a\nb\nc\n', '@@ -2,1 +2,1 @@\n-b\n+B\n')
+    // context line after the hunk expects 'b' at the removal position; a stale
+    // file where the line changed already fails.
+    const stale = applyUnifiedDiff('a\nX\nc\n', '@@ -2,1 +2,1 @@\n-b\n+B\n')
+    expect(result.ok).toBe(true)
+    expect(stale.ok).toBe(false)
+  })
+
+  it('rejects a patch with no hunk header', () => {
+    const result = applyUnifiedDiff('a\n', 'just some text\n')
+    expect(result.ok).toBe(false)
+  })
+
+  it('inserts a mid-file pure-insertion hunk after the anchored old line', () => {
+    const result = applyUnifiedDiff('a\nb\nc\nd\n', '@@ -2,0 +3,1 @@\n+NEW\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb\nNEW\nc\nd\n')
+  })
+
+  it('treats mid-hunk ---/+++ lines as content, not file markers', () => {
+    const result = applyUnifiedDiff('a\n--x\nc\n', '@@ -2,1 +2,1 @@\n---x\n+++x\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\n++x\nc\n')
+  })
+
+  it('removes a trailing newline when the marker follows the added line', () => {
+    const result = applyUnifiedDiff('a\nb\n', '@@ -1,2 +1,2 @@\n a\n-b\n+b\n\\ No newline at end of file\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb')
+  })
+
+  it('adds a trailing newline when the marker follows the removed line', () => {
+    const result = applyUnifiedDiff('a\nb', '@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+b\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb\n')
+  })
+})
+
+describe('narrowPatches', () => {
+  it('accepts a safe patch and discards unsafe or empty ones with a machine-readable reason', () => {
+    const { patches, discarded } = narrowPatches([
+      { path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' },
+      { path: '../etc/passwd', diff: '@@ -1 +1 @@\n-x\n+y\n' },
+      { path: 'src/b.ts', diff: '   ' },
+    ])
+    expect(patches).toEqual([{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }])
+    expect(discarded.map((d) => d.reason)).toEqual([
+      expect.stringMatching(/^invalid-patch:/),
+      expect.stringMatching(/^invalid-patch:/),
+    ])
+  })
+})
+
+describe('mutate', () => {
+  it('writes every patch through ctx.fs with the resolved sandbox policy', async () => {
+    const writes: Array<{ content: string; policy: SandboxExecutionPolicy | undefined }> = []
+    const fs = writeFsFixture({
+      lstat: async (path) => (path === 'src/a.ts' ? { version: undefined, type: 'file' } as unknown as FsPathInfo : undefined),
+      readText: async () => 'a\n',
+      writeText: async (_target, content, _expected, _signal, policy) => {
+        writes.push({ content, policy })
+        return { operation: 'update', version: undefined, before: 'a\n', after: content } as unknown as FsWriteOutcome
+      },
+    })
+    const deps = writeDepsFixture({ fs })
+    const request = await writeRequestFixture()
+    const write = await mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], deps)
+
+    expect(write.appliedPatches).toHaveLength(1)
+    expect(write.validation).toEqual({ ran: false, commands: [], passed: true, exitCodes: [] })
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.content).toBe('A\n')
+    expect(writes[0]?.policy).toEqual(WORKSPACE_POLICY)
+  })
+
+  it('rejects a symlink landing before resolve follows it', async () => {
+    let resolved = false
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'symlink' }) as unknown as FsPathInfo,
+      resolve: async () => {
+        resolved = true
+        return { targetKey: 'key', displayPath: 'src/link.ts' } as unknown as FsTarget
+      },
+    })
+    const deps = writeDepsFixture({ fs })
+    const request = await writeRequestFixture()
+    await expect(mutate(request, [{ path: 'src/link.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }], deps))
+      .rejects.toThrow(/symlink/)
+    expect(resolved).toBe(false)
+  })
+
+  it('rejects a patch that does not apply to the current file', async () => {
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'file' }) as unknown as FsPathInfo,
+      readText: async () => 'X\n',
+    })
+    const deps = writeDepsFixture({ fs })
+    const request = await writeRequestFixture()
+    await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }], deps))
+      .rejects.toThrow(/does not apply/)
+  })
+
+  it('writes nothing when a later patch is rejected (no partial writes)', async () => {
+    const writes: string[] = []
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'file' }) as unknown as FsPathInfo,
+      readText: async () => 'a\n',
+      writeText: async (_target, content) => {
+        writes.push(content)
+        return { operation: 'update', version: undefined, before: 'a\n', after: content } as unknown as FsWriteOutcome
+      },
+    })
+    const deps = writeDepsFixture({ fs })
+    const request = await writeRequestFixture()
+    // The first patch applies; the second is stale against 'a\n'. Both must be
+    // validated before any byte is written.
+    await expect(mutate(request, [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' },
+      { path: 'src/b.ts', diff: '@@ -1,1 +1,1 @@\n-x\n+y\n' },
+    ], deps)).rejects.toThrow(/does not apply/)
+    expect(writes).toHaveLength(0)
+  })
+
+  it('fails closed when the driver did not provide the write seams', async () => {
+    const request = await writeRequestFixture()
+    await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }], depsFixture()))
+      .rejects.toThrow(/ctx\.fs/)
+  })
+})
+
 // --- runReview --------------------------------------------------------------
 
 describe('runReview', () => {
   it('runs the full pipeline and returns a success result', async () => {
-    const deps = depsFixture({ runAgent: async () => [validProposal()] })
+    const deps = depsFixture({ runAgent: async () => ({ proposals: [validProposal()], patches: [] }) })
     const result = await runReview(prPayload(), deps, configFixture())
     expect(result.verdict.status).toBe('success')
     expect(result.verdict.findingsCount).toBe(1)
@@ -492,7 +673,7 @@ describe('runReview', () => {
 
   it('finalizes a complete timed_out result when the agent ignores the budget (gate 6)', async () => {
     const deps = depsFixture({
-      runAgent: (_bounded, signal) => new Promise<readonly RawProposal[]>((_resolve, reject) => {
+      runAgent: (_bounded, signal) => new Promise<AgentOutput>((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')))
       }),
     })
@@ -516,7 +697,7 @@ describe('runReview', () => {
       forges: gatewayFixture({
         createInlineComments: async () => { throw new Error('network down') },
       }),
-      runAgent: async () => [validProposal()],
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
     })
     const result = await runReview(prPayload(), deps, configFixture())
     expect(result.verdict.status).toBe('failed')
@@ -524,6 +705,28 @@ describe('runReview', () => {
     expect(result.requestId).toBe(requestId('evt-1'))
     expect(result.operation).toBe('review')
     expect(result.trust).toBe('trusted-read')
+  })
+
+  it('keeps published findings when a fix intent fails at the mutate stage', async () => {
+    const deps = depsFixture({
+      allowWrite: true,
+      trustPolicy: createTrustPolicy({ allowWrite: true, protectedPaths: [] }),
+      fs: writeFsFixture({
+        lstat: async () => ({ version: undefined, type: 'symlink' }) as unknown as FsPathInfo,
+      }),
+      sandboxPolicy: () => WORKSPACE_POLICY,
+      runAgent: async () => ({
+        proposals: [validProposal()],
+        patches: [{ path: 'src/link.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }],
+      }),
+    })
+    const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.phase).toBe('mutate')
+    expect(result.findings).toHaveLength(1)
+    expect(result.verdict.findingsCount).toBe(1)
+    expect(result.publication?.published).toBe(1)
+    expect(result.summary).toBeTruthy()
   })
 
   it('denies an intent whose trust is below the minimum and never publishes (gate denied)', async () => {
@@ -539,7 +742,7 @@ describe('runReview', () => {
       }),
       runAgent: async () => {
         reasoned = true
-        return []
+        return { proposals: [], patches: [] }
       },
     })
     const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
@@ -558,7 +761,7 @@ describe('runReview', () => {
       trustPolicy: policy,
       runAgent: async () => {
         levelDuringReason = policy.level
-        return []
+        return { proposals: [], patches: [] }
       },
     })
     const result = await runReview(prPayload(), deps, configFixture())
@@ -573,7 +776,10 @@ describe('runReview', () => {
     const deps = depsFixture({
       runAgent: async (bounded) => {
         seen.push({ checks: bounded.checks, intent: bounded.request.intent })
-        return [validProposal({ title: 'null dereference in worker', failureScenario: 'empty queue on restart' })]
+        return {
+          proposals: [validProposal({ title: 'null dereference in worker', failureScenario: 'empty queue on restart' })],
+          patches: [],
+        }
       },
     })
     const result = await runReview(checkFailedPayload(), deps, configFixture())
@@ -743,7 +949,7 @@ describe('snapshot', () => {
   it('writes a snapshot and surfaces its replayId when snapshotReplay is on', async () => {
     const written: ReplaySnapshot[] = []
     const deps = depsFixture({
-      runAgent: async () => [validProposal()],
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
       writeSnapshot: async (snapshot) => {
         written.push(snapshot)
       },
@@ -759,7 +965,7 @@ describe('snapshot', () => {
   it('skips the snapshot when snapshotReplay is off', async () => {
     const written: ReplaySnapshot[] = []
     const deps = depsFixture({
-      runAgent: async () => [validProposal()],
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
       writeSnapshot: async (snapshot) => {
         written.push(snapshot)
       },
@@ -772,7 +978,7 @@ describe('snapshot', () => {
 
   it('tolerates a snapshot write failure without failing the review', async () => {
     const deps = depsFixture({
-      runAgent: async () => [validProposal()],
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
       writeSnapshot: async () => {
         throw new Error('disk full')
       },
