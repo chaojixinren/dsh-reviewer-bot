@@ -165,9 +165,9 @@ function projectRule(rule: Rule): { id: string; severity: Rule['severity']; guid
  * exercise `execute` bodies directly against a mocked context and rule set,
  * without booting a Cordis container.
  *
- * `propose_patch` is deliberately absent: it lands in M3, gated by
- * trust-policy at `tools/pre-execute`. Registering a stub that looks callable
- * would hand the model a tool that does nothing.
+ * `propose_patch` is built separately by `createProposePatchTool` and registered
+ * only when `Config.enablePatchProposal` is true; it is gated to trusted-write
+ * by trust-policy at `tools/pre-execute`.
  */
 export function createReviewTools(deps: ReviewToolDeps): readonly ToolDefinition[] {
   const { rules, context } = deps
@@ -407,7 +407,58 @@ export function createReviewTools(deps: ReviewToolDeps): readonly ToolDefinition
   return [readDiffShard, listApplicableRules, reportFinding, readRepoFile, readCheckLog]
 }
 
-export function apply(ctx: Context, _config: Config): void {
+/**
+ * Builds the M3 `propose_patch` tool. Registered only when
+ * `Config.enablePatchProposal` is true, and gated at execution by trust-policy's
+ * `tools/pre-execute` waterfall (`trusted-write`). The tool body records a
+ * receipt and performs no write — the controller narrows and applies the
+ * proposal inside the sandbox, so an invalid patch is discarded, never written.
+ */
+export function createProposePatchTool(): ToolDefinition {
+  return defineTool({
+    name: 'propose_patch',
+    description:
+      'Propose a unified diff for one repository path. This records a receipt only: the controller validates the proposal and applies it inside the sandbox; a proposal that fails validation is discarded, never written.',
+    parameters: {
+      path: {
+        type: 'string',
+        description: 'Repo-relative path the patch applies to.',
+        required: true,
+      },
+      diff: {
+        type: 'string',
+        description: 'Unified diff text for that single path (standard @@ hunk format).',
+        required: true,
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          received: { type: 'boolean', required: true },
+          path: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [
+        {
+          type: 'text',
+          text: `patch proposal received for ${value.path}. The controller will validate and apply it inside the sandbox.`,
+        },
+      ],
+    },
+    execute: async (args, exec: ToolRunContext) => {
+      // Pure receipt, like report_finding: no fs, no forge, no write. The
+      // controller collects the full proposal from the call's arguments and
+      // narrows it later.
+      exec.signal.throwIfAborted()
+      const path = assertSafePath(args.path)
+      return { received: true, path }
+    },
+  })
+}
+
+export function apply(ctx: Context, config: Config): void {
   const runtime = createReviewToolRuntime()
   // Fiber-owned: the service unregisters when this plugin's fiber unloads.
   ctx.provide('reviewTools', runtime)
@@ -421,8 +472,11 @@ export function apply(ctx: Context, _config: Config): void {
     ctx.effect(() => ctx.tools.register(tool))
   }
 
-  // TODO(M3): register `propose_patch` when config.enablePatchProposal is true,
-  //           gated by trust-policy at tools/pre-execute (trusted-write).
+  // propose_patch lands only when patch proposal is enabled; trust-policy gates
+  // it to trusted-write at tools/pre-execute (see TOOL_REQUIREMENTS).
+  if (config.enablePatchProposal) {
+    ctx.effect(() => ctx.tools.register(createProposePatchTool()))
+  }
 }
 
 declare module '@deepseek-ai/cordis' {

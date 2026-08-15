@@ -223,13 +223,16 @@ describe('reviewLocal', () => {
       write: (line) => {
         comments.push(line)
       },
-      runAgent: async () => [{
-        severity: 'major',
-        title: 'loose equality',
-        body: 'use strict equality',
-        path: 'src/index.ts',
-        line: 2,
-      }],
+      runAgent: async () => ({
+        proposals: [{
+          severity: 'major',
+          title: 'loose equality',
+          body: 'use strict equality',
+          path: 'src/index.ts',
+          line: 2,
+        }],
+        patches: [],
+      }),
       writeSnapshot: async (snapshot) => {
         written.push(snapshot)
       },
@@ -255,13 +258,16 @@ describe('reviewLocal', () => {
       git: async () => DIFF,
       readFile: async () => 'content',
       write: () => {},
-      runAgent: async () => [{
-        severity: 'major',
-        title: 'loose equality',
-        body: 'use strict equality',
-        path: 'src/index.ts',
-        line: 2,
-      }],
+      runAgent: async () => ({
+        proposals: [{
+          severity: 'major',
+          title: 'loose equality',
+          body: 'use strict equality',
+          path: 'src/index.ts',
+          line: 2,
+        }],
+        patches: [],
+      }),
     })
 
     expect(result.verdict.status).toBe('success')

@@ -36,9 +36,18 @@ const DSH = '0.1.0-rc.6'
 const UPSTREAM = {
   'trust-policy': ['dsh-tools', 'dsh-system-prompt'],
   'tool-review': ['dsh-tools', 'dsh-system-prompt'],
-  'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm'],
+  'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy'],
   // progress subscribes to `session/event`, owned by dsh-session.
   'progress': ['dsh-session'],
+}
+
+/**
+ * Workspace packages a given package dev-depends on for its own tests only
+ * (test-time imports, never shipped). `trust-policy`'s parity test imports
+ * `TOOL_NAMES` from tool-review to keep the two tool tables from drifting.
+ */
+const WORKSPACE_DEV_DEPS = {
+  'trust-policy': ['tool-review'],
 }
 
 /** dir, package name, description, workspace deps (short names) */
@@ -78,6 +87,9 @@ for (const [dir, short, description, deps] of PACKAGES) {
     peerDependencies[`@deepseek-ai/${u}`] = DSH
   }
   const devDependencies = { ...peerDependencies }
+  for (const d of WORKSPACE_DEV_DEPS[short] ?? []) {
+    devDependencies[`@dshrb/${d}`] = 'workspace:*'
+  }
 
   const pkg = {
     name: `@dshrb/${short}`,

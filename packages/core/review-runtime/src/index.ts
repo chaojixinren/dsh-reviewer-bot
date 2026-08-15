@@ -10,11 +10,11 @@
 import { createHash } from 'node:crypto'
 import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
 import { countBlockers, findingId, findingInvariantViolation, isSafeRelativePath, meetsSeverityThreshold } from '@dshrb/review-core'
-import { narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
+import { narrowPatchProposal, narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
 import type {
-  CommentId, CommitSha, DiscardedProposal, Failure, Finding, NormalizedEvent, Phase,
-  RawProposal, RequestId, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
-  RulePackSummary, Severity,
+  CommentId, CommitSha, DiscardedProposal, Failure, Finding, IsolationProfile, NormalizedEvent, Patch,
+  Phase, RawPatch, RawProposal, RequestId, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
+  RulePackSummary, Severity, WriteResult,
 } from '@dshrb/review-core'
 import { createAnchorResolver, publishIdempotencyKey } from '@dshrb/forge'
 import type {
@@ -25,11 +25,14 @@ import type { ReviewToolContext } from '@dshrb/tool-review'
 import { capabilitiesFor, explainDenial, INTENT_MIN_TRUST, meetsTrust, resolveTrust } from '@dshrb/trust-policy'
 import type { ActorContext, TrustPolicy } from '@dshrb/trust-policy'
 import type { Context } from '@deepseek-ai/cordis'
+import type { FsPathInfo, FsTarget, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'dshrb-review-runtime'
-export const inject = ['agents', 'sessions', 'tools', 'reviewRules', 'forges', 'trustPolicy', 'reviewTools']
+export const inject = ['agents', 'sessions', 'tools', 'reviewRules', 'forges', 'trustPolicy', 'reviewTools', 'fs', 'sandboxPolicy']
 
 export interface Config {
   /** Watchdog budget. Keep the job-level timeout a few minutes above this so
@@ -98,14 +101,55 @@ export interface StageDeps {
    * the resolved level rather than the fail-closed `none` default.
    */
   readonly trustPolicy: TrustPolicy
-  /** The one non-deterministic stage, injected so tests stay offline. */
-  readonly runAgent: (bounded: BoundedContext, signal: AbortSignal) => Promise<readonly RawProposal[]>
+  /**
+   * The write-capable slice of `ctx.fs`. Every mutation in the mutate stage
+   * goes through it with an explicit `SandboxExecutionPolicy`, never around it
+   * (docs/03 line 127). Optional so read-only drivers (driver-cli) can build a
+   * `StageDeps` without a filesystem backend; the mutate stage fails closed when
+   * a write intent reaches it without one.
+   */
+  readonly fs?: WriteFs
+  /**
+   * Resolves the per-run sandbox policy — the single policy home
+   * (`ctx.sandboxPolicy.resolve()`), threaded as a seam so tests stay offline.
+   * Optional for the same reason as `fs`.
+   */
+  readonly sandboxPolicy?: SandboxPolicyService['resolve']
+  /**
+   * The one non-deterministic stage, injected so tests stay offline. Returns
+   * review findings plus write-mode patch proposals.
+   */
+  readonly runAgent: (bounded: BoundedContext, signal: AbortSignal) => Promise<AgentOutput>
   /**
    * Persists the replay snapshot. Injected so the runtime stays I/O-free in
    * tests; the driver supplies a real disk writer. Absent → the snapshot stage
    * is skipped even when `Config.snapshotReplay` is true.
    */
   readonly writeSnapshot?: (snapshot: ReplaySnapshot) => Promise<void>
+}
+
+/** Everything the agent returns: review findings plus write-mode patch proposals. */
+export interface AgentOutput {
+  readonly proposals: readonly RawProposal[]
+  readonly patches: readonly RawPatch[]
+}
+
+/**
+ * The write-capable slice of `ctx.fs` the mutate stage consumes. Declared as a
+ * narrow interface (like forge's capability split) so a test can mock exactly
+ * what mutate needs without implementing the full `FileSystem` backend; the
+ * real `ctx.fs` satisfies it structurally.
+ */
+export interface WriteFs {
+  /** The backend's default sandbox mode; `undefined` when it never confines. */
+  readonly sandboxMode: SandboxMode | undefined
+  resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
+  lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
+  readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+  writeText(
+    target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<FsWriteOutcome>
 }
 
 // --- Shared helpers ---------------------------------------------------------
@@ -444,7 +488,7 @@ export function assembleContext(
 /** The one non-deterministic stage, reached through the injected agent seam. */
 export function reason(
   bounded: BoundedContext, deps: StageDeps, signal: AbortSignal,
-): Promise<readonly RawProposal[]> {
+): Promise<AgentOutput> {
   return deps.runAgent(bounded, signal)
 }
 
@@ -597,10 +641,194 @@ export async function publish(
   return { commentId, summary, ...stats }
 }
 
-export function mutate(
-  _request: ReviewRequest, _findings: readonly Finding[], _deps: StageDeps,
-): Promise<void> {
-  throw new Error('not implemented: mutate (M3)')
+// --- Mutate -----------------------------------------------------------------
+
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u
+
+/** Outcome of applying a unified diff to a file's current content. */
+export type UnifiedDiffResult =
+  | { readonly ok: true; readonly content: string }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * Applies a single-file unified diff to `content`. Deterministic and offline:
+ * no git, no filesystem. Handles the optional `---`/`+++`/`diff --git` preamble,
+ * standard `@@ -a,b +c,d @@` hunks, and the `\ No newline at end of file`
+ * marker. A hunk that does not line up with `content` fails rather than
+ * guessing, so a patch that no longer applies is reported, never silently
+ * mis-applied.
+ */
+export function applyUnifiedDiff(content: string, diff: string): UnifiedDiffResult {
+  const oldLines = content.split('\n')
+  const result: string[] = []
+  let cursor = 0
+  const lines = diff.split('\n')
+  let index = 0
+
+  // Skip the file preamble (`diff --git`, `---`, `+++`, ...) until the first
+  // hunk header.
+  while (index < lines.length && HUNK_HEADER_RE.exec(lines[index] ?? '') === null) {
+    index++
+  }
+
+  let sawHunk = false
+  while (index < lines.length) {
+    const header = HUNK_HEADER_RE.exec(lines[index] ?? '')
+    if (header === null) {
+      index++
+      continue
+    }
+    sawHunk = true
+    const oldStart = Number(header[1])
+    const oldCount = header[2] === undefined ? 1 : Number(header[2])
+    // A new file (`-0,0`) has no old lines to position against; otherwise the
+    // hunk addresses old lines 1-based, so the 0-based cursor is `oldStart - 1`.
+    const target = oldCount === 0 ? cursor : oldStart - 1
+
+    if (target < cursor) {
+      return { ok: false, reason: `hunk header @@ -${header[1]},${oldCount} +${header[3]} @@ overlaps a previous hunk` }
+    }
+    while (cursor < target) {
+      result.push(oldLines[cursor] ?? '')
+      cursor++
+    }
+
+    index++
+    while (index < lines.length && HUNK_HEADER_RE.exec(lines[index] ?? '') === null) {
+      const line = lines[index] ?? ''
+      if (line === '\\ No newline at end of file') {
+        index++
+        continue
+      }
+      if (line.startsWith('+') && !line.startsWith('+++')) {
+        result.push(line.slice(1))
+      } else if (line.startsWith('-') && !line.startsWith('---')) {
+        if (oldLines[cursor] !== line.slice(1)) {
+          return { ok: false, reason: `hunk removes a line that does not match the file at line ${cursor + 1}` }
+        }
+        cursor++
+      } else if (line.startsWith(' ')) {
+        if (oldLines[cursor] !== line.slice(1)) {
+          return { ok: false, reason: `hunk context does not match the file at line ${cursor + 1}` }
+        }
+        result.push(line.slice(1))
+        cursor++
+      } else if (line === '') {
+        // Trailing blank line artifact after the final hunk; nothing to consume.
+      } else {
+        return { ok: false, reason: `unexpected patch line '${excerpt(line)}'` }
+      }
+      index++
+    }
+  }
+
+  if (!sawHunk) {
+    return { ok: false, reason: 'patch contains no hunk header' }
+  }
+
+  // Append the unchanged tail after the last hunk.
+  while (cursor < oldLines.length) {
+    result.push(oldLines[cursor] ?? '')
+    cursor++
+  }
+
+  return { ok: true, content: result.join('\n') }
+}
+
+/**
+ * Narrows standalone `propose_patch` proposals. Rejections carry the same
+ * machine-readable codes as `narrowProposal` (the `invalid-patch` arm) and land
+ * in the audit trail rather than throwing — a bad patch is expected model
+ * behavior, never a crash.
+ */
+export function narrowPatches(
+  patches: readonly RawPatch[],
+): { patches: readonly Patch[]; discarded: readonly DiscardedProposal[] } {
+  const accepted: Patch[] = []
+  const discarded: DiscardedProposal[] = []
+  for (const raw of patches) {
+    const narrowed = narrowPatchProposal(raw)
+    if (narrowed.ok) {
+      accepted.push(narrowed.value)
+    } else {
+      discarded.push({
+        reason: `${narrowed.reason}: ${narrowed.message}`,
+        rawTitle: excerpt((raw.path ?? '').trim()),
+      })
+    }
+  }
+  return { patches: accepted, discarded }
+}
+
+/**
+ * Requires the write seams (`fs` + `sandboxPolicy`). A write intent that reaches
+ * the mutate stage without them is a driver misconfiguration and fails closed
+ * rather than silently writing unconfined.
+ */
+function requireWriteDeps(deps: StageDeps): { fs: WriteFs; sandboxPolicy: SandboxPolicyService['resolve'] } {
+  const { fs, sandboxPolicy } = deps
+  if (fs === undefined || sandboxPolicy === undefined) {
+    throw new ReviewError('E_WRITE_REJECTED', 'mutate', 'write mode requires ctx.fs and ctx.sandboxPolicy, which this driver did not provide', false)
+  }
+  return { fs, sandboxPolicy }
+}
+
+/** Honest write-mode isolation profile: resolved policy mode + fs backend fact. */
+function isolationProfile(deps: StageDeps): IsolationProfile {
+  const { fs, sandboxPolicy } = requireWriteDeps(deps)
+  const policy = sandboxPolicy()
+  return {
+    mode: policy.mode,
+    fsFencesMutations: fs.sandboxMode !== undefined,
+    ...(fs.sandboxMode === undefined ? {} : { fsMode: fs.sandboxMode }),
+  }
+}
+
+/**
+ * The mutate stage (docs/03 write-mode): resolve the sandbox policy once, write
+ * each patch through `ctx.fs` with that policy, and produce the pending-commit
+ * change set. Commit/push stay with the controller's later stages (#35); this
+ * stage only lands the bytes inside the sandbox boundary.
+ *
+ * The symlink check is the sandbox layer's supplement to `isSafeRelativePath`
+ * (pure syntax, does not resolve links): a repo-relative path that is a symlink
+ * pointing outside the workspace is rejected before `resolve` follows it.
+ */
+export async function mutate(
+  _request: ReviewRequest, patches: readonly Patch[], deps: StageDeps,
+): Promise<WriteResult> {
+  const { fs, sandboxPolicy } = requireWriteDeps(deps)
+  const policy = sandboxPolicy()
+  const applied: Patch[] = []
+
+  for (const patch of patches) {
+    const entry = await fs.lstat(patch.path, { cwd: policy.workspaceRoot })
+    if (entry !== undefined) {
+      if (entry.type === 'symlink') {
+        throw new ReviewError('E_WRITE_REJECTED', 'mutate', `refusing to write through symlink '${excerpt(patch.path)}'`, false)
+      }
+      if (entry.type !== 'file') {
+        throw new ReviewError('E_WRITE_REJECTED', 'mutate', `refusing to write over non-file '${excerpt(patch.path)}' (${entry.type})`, false)
+      }
+    }
+
+    const target = await fs.resolve(patch.path, { cwd: policy.workspaceRoot })
+    const before = entry === undefined ? '' : await fs.readText(target)
+    const appliedPatch = applyUnifiedDiff(before, patch.diff)
+    if (!appliedPatch.ok) {
+      throw new ReviewError('E_WRITE_REJECTED', 'mutate', `patch for '${excerpt(patch.path)}' does not apply: ${appliedPatch.reason}`, false)
+    }
+
+    await fs.writeText(target, appliedPatch.content, undefined, undefined, policy)
+    applied.push(patch)
+  }
+
+  return {
+    appliedPatches: applied,
+    // Validation-command execution lands in #35; until then the change set is
+    // produced but not committed, and no validation ran.
+    validation: { ran: false, commands: [], passed: true, exitCodes: [] },
+  }
 }
 
 // --- Report -----------------------------------------------------------------
@@ -643,6 +871,7 @@ export function report(partial: Partial<ReviewResult>, failure?: Failure): Revie
     ...(partial.rules === undefined ? {} : { rules: partial.rules }),
     ...(partial.summary === undefined ? {} : { summary: partial.summary }),
     ...(partial.write === undefined ? {} : { write: partial.write }),
+    ...(partial.isolation === undefined ? {} : { isolation: partial.isolation }),
     ...(failure === undefined ? {} : { failure }),
     ...(partial.stickyCommentId === undefined ? {} : { stickyCommentId: partial.stickyCommentId }),
     ...(partial.replayId === undefined ? {} : { replayId: partial.replayId }),
@@ -984,10 +1213,14 @@ export async function runReview(
     const bounded = assembleContext(request, diff, deps)
 
     phase = 'reason'
-    const proposals = await reason(bounded, deps, controller.signal)
+    const output = await reason(bounded, deps, controller.signal)
 
     phase = 'validate'
-    const validated = validate(proposals, diff, bounded.rules)
+    const validated = validate(output.proposals, diff, bounded.rules)
+    // Standalone `propose_patch` proposals narrow through the same channel's
+    // patch arm; rejections join the audit trail instead of throwing.
+    const narrowedPatches = narrowPatches(output.patches)
+    const discarded = [...validated.discarded, ...narrowedPatches.discarded]
 
     // Persist the bounded context + findings before publishing, so a publish
     // failure still leaves a replayable snapshot. The writer is injected (disk
@@ -1004,7 +1237,7 @@ export async function runReview(
       const createdAt = deps.now()
       const id = deriveReplayId(request.requestId, createdAt)
       try {
-        await deps.writeSnapshot(buildReplaySnapshot(bounded, validated.findings, validated.discarded, id, createdAt))
+        await deps.writeSnapshot(buildReplaySnapshot(bounded, validated.findings, discarded, id, createdAt))
         replayId = id
       } catch (error) {
         snapshotError = error instanceof Error ? excerpt(error.message) : 'snapshot write failed'
@@ -1013,6 +1246,16 @@ export async function runReview(
 
     phase = 'publish'
     const published = await publish(request, validated.findings, deps)
+
+    // Write mode only: land the accepted patches inside the sandbox boundary and
+    // report the isolation profile honestly (docs/03, docs/07 line 95).
+    let write: WriteResult | undefined
+    let isolation: IsolationProfile | undefined
+    if (request.intent === 'fix') {
+      phase = 'mutate'
+      write = await mutate(request, narrowedPatches.patches, deps)
+      isolation = isolationProfile(deps)
+    }
 
     phase = 'report'
     return report({
@@ -1029,7 +1272,9 @@ export async function runReview(
       rules: deps.packs?.() ?? [],
       summary: published.summary,
       findings: validated.findings,
-      discarded: validated.discarded,
+      discarded,
+      ...(write === undefined ? {} : { write }),
+      ...(isolation === undefined ? {} : { isolation }),
       verdict: {
         status: 'success',
         findingsCount: validated.findings.length,
@@ -1104,8 +1349,9 @@ function renderBoundedContext(bounded: BoundedContext): string {
  * `report_finding` proposals from `session/event`, and returns them.
  */
 function createRunAgent(ctx: Context): StageDeps['runAgent'] {
-  return async (bounded, signal): Promise<readonly RawProposal[]> => {
+  return async (bounded, signal): Promise<AgentOutput> => {
     const proposals: RawProposal[] = []
+    const patches: RawPatch[] = []
     const session = ctx.sessions.create()
 
     const handle = await ctx.agents.create({
@@ -1125,8 +1371,12 @@ function createRunAgent(ctx: Context): StageDeps['runAgent'] {
         agentCtx.effect(() => ctx.reviewTools.activate(context))
 
         agentCtx.on('session/event', (_session, event) => {
-          if (event.type === 'tool/call' && event.data.name === 'report_finding') {
-            proposals.push(JSON.parse(event.data.arguments) as RawProposal)
+          if (event.type === 'tool/call') {
+            if (event.data.name === 'report_finding') {
+              proposals.push(JSON.parse(event.data.arguments) as RawProposal)
+            } else if (event.data.name === 'propose_patch') {
+              patches.push(JSON.parse(event.data.arguments) as RawPatch)
+            }
           }
         })
       },
@@ -1157,7 +1407,7 @@ function createRunAgent(ctx: Context): StageDeps['runAgent'] {
       await handle.dispose()
     }
 
-    return proposals
+    return { proposals, patches }
   }
 }
 
@@ -1172,6 +1422,8 @@ export function apply(ctx: Context, config: Config): void {
     memory: [],
     packs: () => ctx.reviewRules.packs(),
     trustPolicy: ctx.trustPolicy,
+    fs: ctx.fs,
+    sandboxPolicy: () => ctx.sandboxPolicy.resolve(),
   }
   const deps: StageDeps = { ...base, runAgent: createRunAgent(ctx) }
 

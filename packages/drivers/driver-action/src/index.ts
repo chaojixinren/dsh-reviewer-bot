@@ -141,7 +141,7 @@ export function buildResultJson(result: ReviewResult): Record<string, unknown> {
     },
     operation: result.operation ?? 'none',
     forge: result.forgeId ?? '',
-    isolation: null,
+    isolation: result.isolation ?? null,
     findings: {
       items: result.findings,
       discarded: result.discarded,

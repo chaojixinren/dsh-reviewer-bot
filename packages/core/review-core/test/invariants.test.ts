@@ -20,6 +20,7 @@ import {
   isSafeRelativePath,
   isSeverity,
   meetsSeverityThreshold,
+  narrowPatchProposal,
   narrowProposal,
   requestId,
   ruleId,
@@ -265,6 +266,26 @@ describe('narrowProposal', () => {
     const discarded = toDiscarded(raw, result)
     expect(discarded.reason).toContain('unknown-severity')
     expect(discarded.rawTitle).toBe('Off-by-one in page offset')
+  })
+})
+
+describe('narrowPatchProposal', () => {
+  it('accepts a safe patch and keeps the diff verbatim', () => {
+    const diff = '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n'
+    const result = narrowPatchProposal({ path: 'src/paginate.ts', diff })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value).toEqual({ path: 'src/paginate.ts', diff })
+  })
+
+  it.each<[string, { path?: string; diff?: string }]>([
+    ['missing path', { path: '  ', diff: 'd' }],
+    ['path escaping the repo', { path: '../x', diff: 'd' }],
+    ['absolute path', { path: '/etc/passwd', diff: 'd' }],
+    ['empty diff', { path: 'src/a.ts', diff: '   ' }],
+  ])('rejects a %s with the invalid-patch code', (_label, raw) => {
+    const result = narrowPatchProposal(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toBe('invalid-patch')
   })
 })
 
