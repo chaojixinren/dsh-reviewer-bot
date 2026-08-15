@@ -1147,13 +1147,25 @@ export const UNTRUSTED_LOG_OPEN = '<<<UNTRUSTED_CI_LOG_START>>>'
 export const UNTRUSTED_LOG_CLOSE = '<<<UNTRUSTED_CI_LOG_END>>>'
 
 /**
+ * Strips any embedded delimiter markers from untrusted content. CI logs are the
+ * easiest place for an attacker to plant a `UNTRUSTED_LOG_CLOSE`; without
+ * neutralization the attacker could close the untrusted region early and leave
+ * the trailing text to be read as instructions (docs/04-trust-model.md:88,
+ * threat T2).
+ */
+function neutralizeUntrustedDelimiters(text: string): string {
+  return text.replaceAll(UNTRUSTED_LOG_OPEN, '').replaceAll(UNTRUSTED_LOG_CLOSE, '')
+}
+
+/**
  * Wraps an untrusted CI log in explicit delimiters. The diagnose system prompt
  * declares that anything between the markers is data to diagnose, never
  * instructions — a log is the easiest place for an attacker to hide a prompt
- * injection (docs/04-trust-model.md:88, threat T2).
+ * injection (docs/04-trust-model.md:88, threat T2). Both `checkId` and `log`
+ * are neutralized so neither can inject a delimiter and break out of the region.
  */
 export function wrapUntrustedLog(checkId: string, log: string): string {
-  return `${UNTRUSTED_LOG_OPEN}\ncheck-id: ${checkId}\n${log}\n${UNTRUSTED_LOG_CLOSE}`
+  return `${UNTRUSTED_LOG_OPEN}\ncheck-id: ${neutralizeUntrustedDelimiters(checkId)}\n${neutralizeUntrustedDelimiters(log)}\n${UNTRUSTED_LOG_CLOSE}`
 }
 
 /**
