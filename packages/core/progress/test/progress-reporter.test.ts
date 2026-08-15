@@ -39,6 +39,8 @@ interface FakeCommentSink extends CommentSink {
   readonly comments: StickyComment[]
   readonly created: string[]
   readonly updated: Array<{ repo: string; id: CommentId; body: string }>
+  /** When set, updateComment awaits this before recording, to model slow writes. */
+  updateBarrier?: () => Promise<void>
   seed(comment: StickyComment): void
 }
 
@@ -61,6 +63,9 @@ function createFakeSink(): FakeCommentSink {
     },
 
     async updateComment(repo, id, body) {
+      if (this.updateBarrier !== undefined) {
+        await this.updateBarrier()
+      }
       this.updated.push({ repo, id, body })
     },
 
@@ -102,12 +107,12 @@ describe('createProgressReporter.begin', () => {
     expect(sink.created[0]).toContain('received')
   })
 
-  it('reuses an existing sticky authored by the bot id', async () => {
+  it('reuses an existing sticky and resets it to the received stage', async () => {
     const sink = createFakeSink()
     sink.seed({
       id: '99',
       authorId: BOT_ID,
-      body: `${stickyMarker('summary')}\nreceived — working on it`,
+      body: `${stickyMarker('summary')}\ndone — previous run summary`,
     })
     const reporter = createProgressReporter(sink, BOT_ID, config)
 
@@ -115,7 +120,12 @@ describe('createProgressReporter.begin', () => {
 
     expect(id).toEqual(commentId('99'))
     expect(sink.created).toHaveLength(0)
-    expect(sink.updated).toHaveLength(0)
+    expect(sink.updated).toHaveLength(1)
+    expect(sink.updated[0]!.id).toEqual(commentId('99'))
+    expect(sink.updated[0]!.repo).toBe('acme/widgets')
+    expect(firstLine(sink.updated[0]!.body)).toBe(stickyMarker('summary'))
+    expect(sink.updated[0]!.body).toContain('received')
+    expect(sink.updated[0]!.body).not.toContain('previous run summary')
   })
 
   it('ignores a forged marker from a different author and creates a fresh comment', async () => {
@@ -196,6 +206,25 @@ describe('createProgressReporter.advance', () => {
     expect(sink.updated[0]!.id).toEqual(commentId('1'))
   })
 
+  it('reserves the throttle slot synchronously so concurrent advances collapse', async () => {
+    const sink = createFakeSink()
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    sink.updateBarrier = () => gate
+    let clock = 0
+    const reporter = createProgressReporter(sink, BOT_ID, config, () => clock)
+
+    await reporter.begin(target(), 'summary') // writes at t=0
+    clock = 6000
+    const first = reporter.advance('reviewing') // 6000-0 >= 5000 -> reserved, blocked in sink
+    const second = reporter.advance('reviewing') // 6000-6000 < 5000 -> throttled
+    release()
+    await Promise.all([first, second])
+
+    expect(sink.updated).toHaveLength(1)
+    expect(sink.updated[0]!.body).toContain('reviewing')
+  })
+
   it('throws before begin()', async () => {
     const sink = createFakeSink()
     const reporter = createProgressReporter(sink, BOT_ID, config)
@@ -219,6 +248,27 @@ describe('createProgressReporter.finish', () => {
     expect(sink.updated).toHaveLength(1)
     expect(firstLine(sink.updated[0]!.body)).toBe(stickyMarker('summary'))
     expect(sink.updated[0]!.body).toContain('review complete: 3 findings')
+  })
+
+  it('finish always lands after an in-flight advance write', async () => {
+    const sink = createFakeSink()
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    sink.updateBarrier = () => gate
+    const reporter = createProgressReporter(sink, BOT_ID, { ...config, throttleMs: 0 })
+
+    await reporter.begin(target(), 'summary')
+    const advancePromise = reporter.advance('reviewing')
+    // Let the queued advance write start (pass its `finished` re-check) and
+    // block inside updateComment before finish() is called.
+    await Promise.resolve()
+    await Promise.resolve()
+    const finishPromise = reporter.finish('final review body')
+    release()
+    await Promise.all([advancePromise, finishPromise])
+
+    expect(sink.updated[0]!.body).toContain('reviewing')
+    expect(sink.updated.at(-1)!.body).toContain('final review body')
   })
 
   it('throws before begin()', async () => {

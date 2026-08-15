@@ -102,6 +102,16 @@ export function createProgressReporter(
   let stickyId: CommentId | undefined
   let lastWriteMs = Number.NEGATIVE_INFINITY
   let finished = false
+  // Every comment write is serialized through this chain so a slow in-flight
+  // advance can never complete after finish()'s terminal body. A rejected
+  // write does not poison the chain for the writes that follow it.
+  let writeChain: Promise<unknown> = Promise.resolve()
+
+  function enqueueWrite(run: () => Promise<void>): Promise<void> {
+    const next = writeChain.then(run, run)
+    writeChain = next.then(() => undefined, () => undefined)
+    return next
+  }
 
   return {
     async begin(t, m): Promise<CommentId | undefined> {
@@ -118,9 +128,11 @@ export function createProgressReporter(
       const existing = await sink.findStickyComment(t, m, botId)
       if (existing !== undefined) {
         // Found a comment the sink already verified as ours (bot id + marker),
-        // so it is safe to edit. No write happened here, so the first advance
-        // is not throttled against a create that never occurred.
+        // so it is safe to edit. Reset it to the received stage so a previous
+        // run's `done` summary cannot survive into this run's context window.
         stickyId = existing
+        await sink.updateComment(t.repo, stickyId, stageBody(m, 'received'))
+        lastWriteMs = now()
       } else {
         stickyId = await sink.createComment(t, stageBody(m, 'received'))
         lastWriteMs = now()
@@ -138,19 +150,34 @@ export function createProgressReporter(
       if (now() - lastWriteMs < config.throttleMs) {
         return
       }
-      await sink.updateComment(target.repo, stickyId, stageBody(marker, stage, detail))
+      // Reserve the throttle slot synchronously: streaming handlers fire many
+      // concurrent advance() calls, and updating the timestamp only after the
+      // awaited write would let the whole flood pass the throttle check.
       lastWriteMs = now()
+      const repo = target.repo
+      const id = stickyId
+      const m = marker
+      await enqueueWrite(async () => {
+        // finish() may have run while this write was queued; its terminal body
+        // must be the last thing written, so a stale stage update drops here.
+        if (finished) return
+        await sink.updateComment(repo, id, stageBody(m, stage, detail))
+      })
     },
 
     async finish(body): Promise<void> {
       if (target === undefined || marker === undefined) {
         throw new Error('progress: finish() before begin()')
       }
+      // Mark finished synchronously so any advance() that runs from now on
+      // short-circuits, then queue the terminal write behind any in-flight
+      // advance: the final body is always the last write, never throttled.
       finished = true
-      // Never throttled: the terminal body is always written, even when the
-      // preceding advance() was suppressed.
       if (stickyId !== undefined) {
-        await sink.updateComment(target.repo, stickyId, finalBody(marker, body))
+        const repo = target.repo
+        const id = stickyId
+        const m = marker
+        await enqueueWrite(() => sink.updateComment(repo, id, finalBody(m, body)))
       } else {
         stickyId = await sink.createComment(target, finalBody(marker, body))
       }
