@@ -22,6 +22,7 @@ import {
   meetsSeverityThreshold,
   narrowProposal,
   requestId,
+  ruleId,
   severityRank,
   toDiscarded,
 } from '../src/index.ts'
