@@ -209,6 +209,13 @@ export interface ReviewResult {
   readonly stickyCommentId?: CommentId
   /** Snapshot id for `dshrb replay`. Absent until B4 snapshots land. */
   readonly replayId?: string
+  /**
+   * Non-fatal snapshot persistence failure. When set, the review still
+   * succeeded (findings were published) but the replay snapshot could not be
+   * written, so `replayId` is absent and `dshrb replay` is unavailable for this
+   * run. Carries the underlying error message, never a secret value.
+   */
+  readonly snapshotError?: string
 }
 
 /** Publish outcome: how many findings posted, degraded, or failed. */

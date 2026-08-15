@@ -169,6 +169,9 @@ export function renderToTty(result: ReviewResult): string {
   if (result.replayId !== undefined) {
     lines.push(`replay: ${result.replayId}`)
   }
+  if (result.snapshotError !== undefined) {
+    lines.push(`snapshot: unavailable — ${result.snapshotError}`)
+  }
   if (result.failure !== undefined) {
     lines.push(`failure [${result.failure.code}] ${result.failure.phase}: ${result.failure.message}`)
   }

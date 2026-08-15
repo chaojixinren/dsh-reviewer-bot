@@ -646,6 +646,7 @@ export function report(partial: Partial<ReviewResult>, failure?: Failure): Revie
     ...(failure === undefined ? {} : { failure }),
     ...(partial.stickyCommentId === undefined ? {} : { stickyCommentId: partial.stickyCommentId }),
     ...(partial.replayId === undefined ? {} : { replayId: partial.replayId }),
+    ...(partial.snapshotError === undefined ? {} : { snapshotError: partial.snapshotError }),
   }
 }
 
@@ -937,6 +938,7 @@ export async function runReview(
   let request: ReviewRequest | undefined
   let deactivateTrust: (() => void) | undefined
   let replayId: string | undefined
+  let snapshotError: string | undefined
 
   try {
     event = await ingest(raw, deps)
@@ -992,12 +994,21 @@ export async function runReview(
     // lives in the driver); without one, or with snapshotReplay off, this is a
     // no-op. `replayId` is threaded into the result so `dshrb replay <id>` can
     // find the snapshot.
+    //
+    // Snapshot persistence is a best-effort replay aid, not a review gate: a
+    // disk/permission error here must not discard already-validated findings or
+    // skip publish. The failure is recorded as `snapshotError` (non-fatal) so
+    // the run still succeeds and the missing replay surface is explained.
     phase = 'snapshot'
     if (config.snapshotReplay && deps.writeSnapshot !== undefined) {
       const createdAt = deps.now()
       const id = deriveReplayId(request.requestId, createdAt)
-      await deps.writeSnapshot(buildReplaySnapshot(bounded, validated.findings, validated.discarded, id, createdAt))
-      replayId = id
+      try {
+        await deps.writeSnapshot(buildReplaySnapshot(bounded, validated.findings, validated.discarded, id, createdAt))
+        replayId = id
+      } catch (error) {
+        snapshotError = error instanceof Error ? excerpt(error.message) : 'snapshot write failed'
+      }
     }
 
     phase = 'publish'
@@ -1027,6 +1038,7 @@ export async function runReview(
       },
       ...(published.commentId === undefined ? {} : { stickyCommentId: published.commentId }),
       ...(replayId === undefined ? {} : { replayId }),
+      ...(snapshotError === undefined ? {} : { snapshotError }),
     })
   } catch (error) {
     const failure: Failure = timedOut
@@ -1044,6 +1056,7 @@ export async function runReview(
       ...(intent === undefined ? {} : { operation: intent }),
       ...(request === undefined ? {} : { trust: request.trust, capabilities: request.capabilities }),
       ...(replayId === undefined ? {} : { replayId }),
+      ...(snapshotError === undefined ? {} : { snapshotError }),
       verdict: {
         status: 'failed',
         findingsCount: 0,

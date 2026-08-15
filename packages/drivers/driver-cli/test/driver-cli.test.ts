@@ -96,6 +96,16 @@ describe('renderToTty', () => {
     expect(output).toContain('missing-title — nope')
     expect(output).toContain('failure [E_DENIED] authorize: fork PR')
   })
+
+  it('renders a non-fatal snapshot failure as a warning, not a failed run', () => {
+    const output = renderToTty(resultFixture({
+      operation: 'review',
+      snapshotError: 'disk full',
+    }))
+
+    expect(output).toContain('snapshot: unavailable — disk full')
+    expect(output).not.toContain('failure [')
+  })
 })
 
 // --- replay -----------------------------------------------------------------

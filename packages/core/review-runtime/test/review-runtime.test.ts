@@ -628,4 +628,18 @@ describe('snapshot', () => {
     expect(result.replayId).toBeUndefined()
     expect(written).toHaveLength(0)
   })
+
+  it('tolerates a snapshot write failure without failing the review', async () => {
+    const deps = depsFixture({
+      runAgent: async () => [validProposal()],
+      writeSnapshot: async () => {
+        throw new Error('disk full')
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(1)
+    expect(result.replayId).toBeUndefined()
+    expect(result.snapshotError).toContain('disk full')
+  })
 })
