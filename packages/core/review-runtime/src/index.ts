@@ -650,6 +650,37 @@ export type UnifiedDiffResult =
   | { readonly ok: true; readonly content: string }
   | { readonly ok: false; readonly reason: string }
 
+/** A line of file content plus whether a newline follows it. */
+interface Line {
+  readonly text: string
+  readonly newline: boolean
+}
+
+/**
+ * Splits content into newline-tracking lines. `'a\nb\n'` → two lines each with
+ * a trailing newline; `'a\nb'` → line `b` without one; `''` → no lines. This
+ * preserves the byte-exact trailing-newline shape that a bare
+ * `split('\n').join('\n')` round-trip cannot, so hunks carrying the
+ * `\ No newline at end of file` marker apply to the right bytes.
+ */
+function splitLines(content: string): Line[] {
+  if (content === '') return []
+  const endsWithNewline = content.endsWith('\n')
+  const parts = content.split('\n')
+  const texts = endsWithNewline ? parts.slice(0, -1) : parts
+  return texts.map((text, i) => ({ text, newline: endsWithNewline || i < texts.length - 1 }))
+}
+
+/** Reassembles newline-tracking lines byte-for-byte. */
+function joinLines(lines: readonly Line[]): string {
+  let out = ''
+  for (const line of lines) {
+    out += line.text
+    if (line.newline) out += '\n'
+  }
+  return out
+}
+
 /**
  * Applies a single-file unified diff to `content`. Deterministic and offline:
  * no git, no filesystem. Handles the optional `---`/`+++`/`diff --git` preamble,
@@ -659,8 +690,8 @@ export type UnifiedDiffResult =
  * mis-applied.
  */
 export function applyUnifiedDiff(content: string, diff: string): UnifiedDiffResult {
-  const oldLines = content.split('\n')
-  const result: string[] = []
+  const oldLines = splitLines(content)
+  const result: Line[] = []
   let cursor = 0
   const lines = diff.split('\n')
   let index = 0
@@ -681,38 +712,55 @@ export function applyUnifiedDiff(content: string, diff: string): UnifiedDiffResu
     sawHunk = true
     const oldStart = Number(header[1])
     const oldCount = header[2] === undefined ? 1 : Number(header[2])
-    // A new file (`-0,0`) has no old lines to position against; otherwise the
-    // hunk addresses old lines 1-based, so the 0-based cursor is `oldStart - 1`.
-    const target = oldCount === 0 ? cursor : oldStart - 1
+    // A pure insertion (`oldCount === 0`) anchors to `oldStart` — "insert after
+    // that old line" in 0-based terms — not the running cursor. Otherwise old
+    // lines are 1-based, so the 0-based cursor is `oldStart - 1`.
+    const target = oldCount === 0 ? oldStart : oldStart - 1
 
     if (target < cursor) {
       return { ok: false, reason: `hunk header @@ -${header[1]},${oldCount} +${header[3]} @@ overlaps a previous hunk` }
     }
     while (cursor < target) {
-      result.push(oldLines[cursor] ?? '')
+      const skipped = oldLines[cursor]
+      result.push(skipped ?? { text: '', newline: true })
       cursor++
     }
 
     index++
+    let lastKind: 'add' | 'remove' | 'context' | null = null
     while (index < lines.length && HUNK_HEADER_RE.exec(lines[index] ?? '') === null) {
       const line = lines[index] ?? ''
       if (line === '\\ No newline at end of file') {
-        index++
-        continue
-      }
-      if (line.startsWith('+') && !line.startsWith('+++')) {
-        result.push(line.slice(1))
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
-        if (oldLines[cursor] !== line.slice(1)) {
+        // The marker modifies the immediately preceding line: it is the EOF
+        // line without a trailing newline. For `remove` the consumed old line
+        // had no newline and the output is unaffected because that line is gone.
+        if (lastKind === 'add' || lastKind === 'context') {
+          const prev = result[result.length - 1]
+          if (prev !== undefined) {
+            result[result.length - 1] = { text: prev.text, newline: false }
+          }
+        }
+        lastKind = null
+      } else if (line.startsWith('+')) {
+        // `+` prefix plus content. A `+++` line here is ordinary content — the
+        // file preamble was already skipped before the first hunk header.
+        result.push({ text: line.slice(1), newline: true })
+        lastKind = 'add'
+      } else if (line.startsWith('-')) {
+        const removed = oldLines[cursor]
+        if (removed === undefined || removed.text !== line.slice(1)) {
           return { ok: false, reason: `hunk removes a line that does not match the file at line ${cursor + 1}` }
         }
         cursor++
+        lastKind = 'remove'
       } else if (line.startsWith(' ')) {
-        if (oldLines[cursor] !== line.slice(1)) {
+        const context = oldLines[cursor]
+        if (context === undefined || context.text !== line.slice(1)) {
           return { ok: false, reason: `hunk context does not match the file at line ${cursor + 1}` }
         }
-        result.push(line.slice(1))
+        result.push({ text: context.text, newline: context.newline })
         cursor++
+        lastKind = 'context'
       } else if (line === '') {
         // Trailing blank line artifact after the final hunk; nothing to consume.
       } else {
@@ -728,11 +776,12 @@ export function applyUnifiedDiff(content: string, diff: string): UnifiedDiffResu
 
   // Append the unchanged tail after the last hunk.
   while (cursor < oldLines.length) {
-    result.push(oldLines[cursor] ?? '')
+    const tail = oldLines[cursor]
+    result.push(tail ?? { text: '', newline: true })
     cursor++
   }
 
-  return { ok: true, content: result.join('\n') }
+  return { ok: true, content: joinLines(result) }
 }
 
 /**
@@ -799,8 +848,12 @@ export async function mutate(
 ): Promise<WriteResult> {
   const { fs, sandboxPolicy } = requireWriteDeps(deps)
   const policy = sandboxPolicy()
-  const applied: Patch[] = []
 
+  // Phase 1: validate every patch against the sandbox boundary and the current
+  // file content BEFORE any byte lands on disk. A rejection anywhere in the
+  // list must abort with zero writes — otherwise earlier files are already
+  // mutated while the stage throws and reports no change set at all.
+  const plan: Array<{ patch: Patch; target: FsTarget; content: string }> = []
   for (const patch of patches) {
     const entry = await fs.lstat(patch.path, { cwd: policy.workspaceRoot })
     if (entry !== undefined) {
@@ -818,9 +871,15 @@ export async function mutate(
     if (!appliedPatch.ok) {
       throw new ReviewError('E_WRITE_REJECTED', 'mutate', `patch for '${excerpt(patch.path)}' does not apply: ${appliedPatch.reason}`, false)
     }
+    plan.push({ patch, target, content: appliedPatch.content })
+  }
 
-    await fs.writeText(target, appliedPatch.content, undefined, undefined, policy)
-    applied.push(patch)
+  // Phase 2: land the bytes. Every patch already validated, so a failure here
+  // is a filesystem fault rather than a policy or apply rejection.
+  const applied: Patch[] = []
+  for (const step of plan) {
+    await fs.writeText(step.target, step.content, undefined, undefined, policy)
+    applied.push(step.patch)
   }
 
   return {
@@ -1168,6 +1227,12 @@ export async function runReview(
   let deactivateTrust: (() => void) | undefined
   let replayId: string | undefined
   let snapshotError: string | undefined
+  // Hoisted so a mutate-stage failure that follows a successful publish can
+  // still report the findings/publication that are already on the forge,
+  // instead of the catch collapsing them to an empty result.
+  let published: PublishResult | undefined
+  let findings: readonly Finding[] | undefined
+  let discarded: readonly DiscardedProposal[] | undefined
 
   try {
     event = await ingest(raw, deps)
@@ -1220,7 +1285,8 @@ export async function runReview(
     // Standalone `propose_patch` proposals narrow through the same channel's
     // patch arm; rejections join the audit trail instead of throwing.
     const narrowedPatches = narrowPatches(output.patches)
-    const discarded = [...validated.discarded, ...narrowedPatches.discarded]
+    findings = validated.findings
+    discarded = [...validated.discarded, ...narrowedPatches.discarded]
 
     // Persist the bounded context + findings before publishing, so a publish
     // failure still leaves a replayable snapshot. The writer is injected (disk
@@ -1245,7 +1311,7 @@ export async function runReview(
     }
 
     phase = 'publish'
-    const published = await publish(request, validated.findings, deps)
+    published = await publish(request, validated.findings, deps)
 
     // Write mode only: land the accepted patches inside the sandbox boundary and
     // report the isolation profile honestly (docs/03, docs/07 line 95).
@@ -1302,10 +1368,26 @@ export async function runReview(
       ...(request === undefined ? {} : { trust: request.trust, capabilities: request.capabilities }),
       ...(replayId === undefined ? {} : { replayId }),
       ...(snapshotError === undefined ? {} : { snapshotError }),
+      // A mutate-stage rejection must not erase findings that already reached
+      // the forge (docs/03 write-mode): report them with the failure attached so
+      // result-json reflects the forge state instead of an empty finding set.
+      ...(findings === undefined ? {} : { findings }),
+      ...(discarded === undefined ? {} : { discarded }),
+      ...(published === undefined
+        ? {}
+        : {
+            publication: {
+              published: published.published,
+              degradedToSummary: published.degradedToSummary,
+              failed: published.failed,
+            },
+            summary: published.summary,
+            ...(published.commentId === undefined ? {} : { stickyCommentId: published.commentId }),
+          }),
       verdict: {
         status: 'failed',
-        findingsCount: 0,
-        blockersCount: 0,
+        findingsCount: findings?.length ?? 0,
+        blockersCount: findings === undefined ? 0 : countBlockers(findings),
         durationMs: deps.now() - startedAt,
       },
     }, failure)

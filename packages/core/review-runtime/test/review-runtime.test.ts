@@ -501,6 +501,30 @@ describe('applyUnifiedDiff', () => {
     const result = applyUnifiedDiff('a\n', 'just some text\n')
     expect(result.ok).toBe(false)
   })
+
+  it('inserts a mid-file pure-insertion hunk after the anchored old line', () => {
+    const result = applyUnifiedDiff('a\nb\nc\nd\n', '@@ -2,0 +3,1 @@\n+NEW\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb\nNEW\nc\nd\n')
+  })
+
+  it('treats mid-hunk ---/+++ lines as content, not file markers', () => {
+    const result = applyUnifiedDiff('a\n--x\nc\n', '@@ -2,1 +2,1 @@\n---x\n+++x\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\n++x\nc\n')
+  })
+
+  it('removes a trailing newline when the marker follows the added line', () => {
+    const result = applyUnifiedDiff('a\nb\n', '@@ -1,2 +1,2 @@\n a\n-b\n+b\n\\ No newline at end of file\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb')
+  })
+
+  it('adds a trailing newline when the marker follows the removed line', () => {
+    const result = applyUnifiedDiff('a\nb', '@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+b\n')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.content).toBe('a\nb\n')
+  })
 })
 
 describe('narrowPatches', () => {
@@ -567,6 +591,27 @@ describe('mutate', () => {
       .rejects.toThrow(/does not apply/)
   })
 
+  it('writes nothing when a later patch is rejected (no partial writes)', async () => {
+    const writes: string[] = []
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'file' }) as unknown as FsPathInfo,
+      readText: async () => 'a\n',
+      writeText: async (_target, content) => {
+        writes.push(content)
+        return { operation: 'update', version: undefined, before: 'a\n', after: content } as unknown as FsWriteOutcome
+      },
+    })
+    const deps = writeDepsFixture({ fs })
+    const request = await writeRequestFixture()
+    // The first patch applies; the second is stale against 'a\n'. Both must be
+    // validated before any byte is written.
+    await expect(mutate(request, [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' },
+      { path: 'src/b.ts', diff: '@@ -1,1 +1,1 @@\n-x\n+y\n' },
+    ], deps)).rejects.toThrow(/does not apply/)
+    expect(writes).toHaveLength(0)
+  })
+
   it('fails closed when the driver did not provide the write seams', async () => {
     const request = await writeRequestFixture()
     await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }], depsFixture()))
@@ -628,6 +673,28 @@ describe('runReview', () => {
     expect(result.requestId).toBe(requestId('evt-1'))
     expect(result.operation).toBe('review')
     expect(result.trust).toBe('trusted-read')
+  })
+
+  it('keeps published findings when a fix intent fails at the mutate stage', async () => {
+    const deps = depsFixture({
+      allowWrite: true,
+      trustPolicy: createTrustPolicy({ allowWrite: true, protectedPaths: [] }),
+      fs: writeFsFixture({
+        lstat: async () => ({ version: undefined, type: 'symlink' }) as unknown as FsPathInfo,
+      }),
+      sandboxPolicy: () => WORKSPACE_POLICY,
+      runAgent: async () => ({
+        proposals: [validProposal()],
+        patches: [{ path: 'src/link.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }],
+      }),
+    })
+    const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.phase).toBe('mutate')
+    expect(result.findings).toHaveLength(1)
+    expect(result.verdict.findingsCount).toBe(1)
+    expect(result.publication?.published).toBe(1)
+    expect(result.summary).toBeTruthy()
   })
 
   it('denies an intent whose trust is below the minimum and never publishes (gate denied)', async () => {
