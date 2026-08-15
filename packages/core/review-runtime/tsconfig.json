@@ -20,12 +20,6 @@
     },
     {
       "path": "../rule-registry"
-    },
-    {
-      "path": "../progress"
-    },
-    {
-      "path": "../../tools/tool-review"
     }
   ]
 }

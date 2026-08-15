@@ -17,13 +17,14 @@
     "lib/types/**/*.d.ts"
   ],
   "dependencies": {
-    "@deepseek-ai/schemastery": "*",
-    "@dshrb/review-core": "workspace:*"
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@dshrb/review-core": "workspace:*",
+    "@dshrb/forge": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*"
+    "@deepseek-ai/cordis": "4.0.1"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "*"
+    "@deepseek-ai/cordis": "4.0.1"
   }
 }

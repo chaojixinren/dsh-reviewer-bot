@@ -14,16 +14,19 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VERSION = '0.1.0'
-const CORDIS = '*'
+// Pinned to the exact versions probed in `.probe/` (see docs/09-roadmap.md
+// compatibility matrix). DSH is in developer preview: never float these.
+const CORDIS = '4.0.1'
+const SCHEMASTERY = '3.18.1'
 
 /** dir, package name, description, workspace deps (short names) */
 const PACKAGES = [
   ['core/review-core', 'review-core', 'Domain types and invariants for review requests, findings, and verdicts.', []],
   ['core/forge', 'forge', 'ForgeGateway capability interfaces and the provider registry.', ['review-core']],
-  ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core']],
+  ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core', 'forge']],
   ['core/rule-registry', 'rule-registry', 'Declarative review rule pack registry with glob matching.', ['review-core']],
   ['core/progress', 'progress', 'Sticky progress comment lifecycle reporter.', ['review-core', 'forge']],
-  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'progress', 'tool-review']],
+  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry']],
   ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge']],
   ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge']],
   ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],
@@ -39,7 +42,7 @@ for (const [dir, short, description, deps] of PACKAGES) {
   const pkgDir = join(root, 'packages', dir)
   mkdirSync(join(pkgDir, 'src'), { recursive: true })
 
-  const dependencies = { '@deepseek-ai/schemastery': '*' }
+  const dependencies = { '@deepseek-ai/schemastery': SCHEMASTERY }
   const devDependencies = { '@deepseek-ai/cordis': CORDIS }
   for (const d of deps) {
     dependencies[`@dshrb/${d}`] = 'workspace:*'

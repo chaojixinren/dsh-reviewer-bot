@@ -1,3 +1,7 @@
 packages:
   - 'packages/*/*'
   - 'bundle'
+allowBuilds:
+  # esbuild ships its platform binary through optionalDependencies; its
+  # postinstall is only a fallback downloader, so it can stay disabled.
+  esbuild: false
