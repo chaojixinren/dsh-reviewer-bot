@@ -9,6 +9,7 @@
 import type {
   Anchor, ChangeRequestId, CommentId, CommitSha, Finding, ForgeId, Patch, ReviewTarget,
 } from '@dshrb/review-core'
+import type { Context } from '@deepseek-ai/cordis'
 
 export type ForgeCapability =
   | 'diff-source' | 'comment-sink' | 'inline-comments' | 'sticky-comment'
@@ -122,6 +123,44 @@ export interface AnchorResolver {
   resolve(diff: UnifiedDiff, path: string, line: number): Anchor
 }
 
-export declare function createForgeRegistry(): ForgeRegistry
+export function createForgeRegistry(): ForgeRegistry {
+  const gateways = new Map<string, ForgeGateway>()
+  return {
+    register(gateway) {
+      gateways.set(gateway.id, gateway)
+      return () => {
+        gateways.delete(gateway.id)
+      }
+    },
+    resolve(id) {
+      return gateways.get(id)
+    },
+    require: <T extends ForgeGateway>(id: ForgeId, caps: readonly ForgeCapability[]): T => {
+      const gateway = gateways.get(id)
+      if (gateway === undefined) {
+        throw new Error(`no forge provider registered for '${id}'`)
+      }
+      const missing = caps.filter((cap) => !gateway.capabilities.includes(cap))
+      if (missing.length > 0) {
+        throw new Error(`forge '${id}' is missing required capabilities: ${missing.join(', ')}`)
+      }
+      return gateway as unknown as T
+    },
+  }
+}
+
+export const name = 'dshrb-forge'
+
+export function apply(ctx: Context): void {
+  // `ctx.provide` is fiber-owned: the service unregisters when this plugin's
+  // fiber unloads, which deactivates every `inject: ['forges']` provider.
+  ctx.provide('forges', createForgeRegistry())
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    forges: ForgeRegistry
+  }
+}
 
 export type { ChangeRequestId }

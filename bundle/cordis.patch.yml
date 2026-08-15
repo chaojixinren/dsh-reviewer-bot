@@ -24,6 +24,10 @@
       config:
         allowWrite: false
 
+    # Forge registry must provide `forges` before any provider injects it.
+    - id: dshrb-forge
+      name: '@dshrb/forge'
+
     - id: dshrb-forge-github
       name: '@dshrb/forge-github'
       config:
