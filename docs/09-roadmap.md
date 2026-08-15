@@ -160,6 +160,6 @@ M0 与 M1 均已完成：设计文档、workspace 与构建链（`pnpm run check
 
 M2 已完成 4/4：`rule-registry`（`reviewRules` 服务与规则包注册表，PR #29）、`rules-baseline`（基线规则包，PR #30）、`forge-local`（本地 git provider，离线 dry-run，PR #28）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`，PR #31）。
 
-已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 14 个测试文件、355 例单测全绿。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）与 `diagnose` 意图（读 CI 失败日志定位根因并回帖）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 14 个测试文件、362 例单测全绿。
 
 未实现（刻意）：M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 尚未实现。下一步进入 M3 写模式。
