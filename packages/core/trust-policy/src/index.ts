@@ -326,6 +326,49 @@ function diffTouchesScripts(diff: string): boolean {
   return /"scripts"\s*:/u.test(diff)
 }
 
+/**
+ * Parses a manifest's `scripts` field for the authoritative red line. An empty
+ * string is a newly-created manifest and has no `scripts`; a non-empty manifest
+ * that fails to parse returns `undefined`, which the caller treats as a
+ * fail-closed signal rather than "assume safe".
+ */
+function parsedScripts(content: string): { scripts: unknown } | undefined {
+  if (content.trim() === '') return { scripts: undefined }
+  try {
+    return { scripts: (JSON.parse(content) as Record<string, unknown>).scripts }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Authoritative `package.json` `scripts` red line, evaluated where the file's
+ * before/after content is available (the mutate stage). A structural compare of
+ * the parsed `scripts` field catches an edit to a script VALUE whose diff hunk
+ * context never reaches the `"scripts"` key — the exact case the text-only
+ * guard cannot see. Fails closed: a manifest that cannot be parsed counts as a
+ * change, so an unreadable package.json is refused rather than assumed safe.
+ */
+export function scriptsFieldChanged(before: string, after: string): boolean {
+  const beforeScripts = parsedScripts(before)
+  const afterScripts = parsedScripts(after)
+  if (beforeScripts === undefined || afterScripts === undefined) return true
+  return JSON.stringify(beforeScripts.scripts) !== JSON.stringify(afterScripts.scripts)
+}
+
+/**
+ * Normalizes a write path before red-line checks: trims whitespace and strips a
+ * leading `./`, so `./.github/x` and ` .github/x` resolve to the same protected
+ * target the filesystem will write, instead of missing the `.github/**` glob.
+ */
+function normalizeWritePath(path: string): string {
+  let normalized = path.trim()
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2)
+  }
+  return normalized
+}
+
 /** Caps untrusted text before it lands in a denial reason. */
 function excerpt(value: string): string {
   return value.length > 80 ? `${value.slice(0, 80)}…` : value
@@ -339,22 +382,26 @@ function excerpt(value: string): string {
  * `allow` result, so a later listener cannot turn it back into permission.
  */
 export function writeRedLineViolation(write: WriteRedLine, protectedPaths: readonly string[]): string | undefined {
-  if (!isSafeRelativePath(write.path)) {
-    return `path '${excerpt(write.path)}' is not a safe repo-relative path (absolute, drive, '..', or NUL)`
+  // Normalize once, up front, so every red line (and the denial message) agrees
+  // with the path the filesystem will actually write. `./` and stray whitespace
+  // must not let a protected path dodge its glob.
+  const path = normalizeWritePath(write.path)
+  if (!isSafeRelativePath(path)) {
+    return `path '${excerpt(path)}' is not a safe repo-relative path (absolute, drive, '..', or NUL)`
   }
-  const protectedPattern = protectedPaths.find((pattern) => matchesGlob(pattern, write.path))
+  const protectedPattern = protectedPaths.find((pattern) => matchesGlob(pattern, path))
   if (protectedPattern !== undefined) {
-    return `path '${excerpt(write.path)}' is protected by '${protectedPattern}'`
+    return `path '${excerpt(path)}' is protected by '${protectedPattern}'`
   }
-  if (write.binaryPaths.includes(write.path)) {
-    return `path '${excerpt(write.path)}' is a binary file`
+  if (write.binaryPaths.includes(path)) {
+    return `path '${excerpt(path)}' is a binary file`
   }
-  if (isManifest(write.path) && diffTouchesScripts(write.diff)) {
-    return `path '${excerpt(write.path)}' would modify the package.json 'scripts' field, a permanent red line`
+  if (isManifest(path) && diffTouchesScripts(write.diff)) {
+    return `path '${excerpt(path)}' would modify the package.json 'scripts' field, a permanent red line`
   }
-  const manifest = manifestForLockfile(write.path)
+  const manifest = manifestForLockfile(path)
   if (manifest !== undefined && !write.changedPaths.includes(manifest)) {
-    return `lockfile '${excerpt(write.path)}' requires a matching change to '${manifest}' in the same request`
+    return `lockfile '${excerpt(path)}' requires a matching change to '${manifest}' in the same request`
   }
   return undefined
 }
@@ -436,13 +483,24 @@ export interface TrustPolicy {
    * detection. @returns a disposer restoring the previous context.
    */
   bindWriteContext(context: WriteGuardContext): () => void
+  /**
+   * Authoritative write red-line check for the mutate stage, run after a patch
+   * has been applied to the file's current content. The tool-call guard fires
+   * before the session event that records the patch, so a guard denial does not
+   * by itself stop a proposal; this re-check is what actually prevents a
+   * red-lined patch from landing on disk. It additionally sees the file's
+   * before/after content, so it can detect a `package.json` `scripts` edit even
+   * when the diff hunk's context never reaches the `"scripts"` key. Returns a
+   * denial reason, or `undefined` to allow.
+   */
+  rejectWrite(path: string, diff: string, before: string, after: string): string | undefined
 }
 
 class TrustPolicyState implements TrustPolicy {
   #input: TrustInput | undefined
   #writeContext: WriteGuardContext | undefined
 
-  constructor(private readonly allowWrite: boolean) {}
+  constructor(private readonly allowWrite: boolean, private readonly protectedPaths: readonly string[]) {}
 
   get input(): TrustInput | undefined {
     return this.#input
@@ -476,6 +534,24 @@ class TrustPolicyState implements TrustPolicy {
     }
   }
 
+  rejectWrite(path: string, diff: string, before: string, after: string): string | undefined {
+    const context = this.#writeContext
+    if (context === undefined) {
+      return 'write denied — no write-guard context is bound for this run'
+    }
+    const redLine = writeRedLineViolation(
+      { path, diff, changedPaths: context.changedPaths, binaryPaths: context.binaryPaths },
+      this.protectedPaths,
+    )
+    if (redLine !== undefined) return redLine
+    // The authoritative scripts red line: structural compare of before/after,
+    // which catches a script-value edit the text-only guard's diff check missed.
+    if (isManifest(path) && scriptsFieldChanged(before, after)) {
+      return `path '${excerpt(path)}' would modify the package.json 'scripts' field, a permanent red line`
+    }
+    return undefined
+  }
+
   restrictScope(scoped: Context): () => void {
     return scoped.tools.restrict(toolRestrictionFor(this.level))
   }
@@ -493,7 +569,7 @@ class TrustPolicyState implements TrustPolicy {
 }
 
 export function createTrustPolicy(config: Config): TrustPolicy {
-  return new TrustPolicyState(config.allowWrite)
+  return new TrustPolicyState(config.allowWrite, config.protectedPaths)
 }
 
 export function apply(ctx: Context, config: Config): void {

@@ -116,6 +116,18 @@ function trustPolicyFixture(): TrustPolicy {
   return createTrustPolicy({ allowWrite: false, protectedPaths: [] })
 }
 
+/**
+ * A trust policy with the write-guard context already bound, as `runReview`
+ * does after `fetchDiff`. `mutate` re-checks the red lines through
+ * `trustPolicy.rejectWrite`, which fails closed when no context is bound — so
+ * direct `mutate` tests must bind one.
+ */
+function writeTrustPolicyFixture(): TrustPolicy {
+  const policy = createTrustPolicy({ allowWrite: true, protectedPaths: [] })
+  policy.bindWriteContext({ changedPaths: ['src/a.ts'], binaryPaths: [] })
+  return policy
+}
+
 function configFixture(over: Partial<Config> = {}): Config {
   return {
     timeoutMinutes: 25,
@@ -496,6 +508,7 @@ function writeDepsFixture(over: Partial<StageDeps> = {}): StageDeps {
   return depsFixture({
     fs: writeFsFixture(),
     sandboxPolicy: () => WORKSPACE_POLICY,
+    trustPolicy: writeTrustPolicyFixture(),
     ...over,
   })
 }
@@ -655,6 +668,49 @@ describe('mutate', () => {
     await expect(mutate(request, [{ path: 'src/a.ts', diff: '@@ -1 +1 @@\n-x\n+y\n' }], depsFixture()))
       .rejects.toThrow(/ctx\.fs/)
   })
+
+  it('re-checks red lines: refuses a protected path before any byte lands', async () => {
+    const writes: string[] = []
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'file' }) as unknown as FsPathInfo,
+      readText: async () => 'a\n',
+      writeText: async (_target, content) => {
+        writes.push(content)
+        return { operation: 'update', version: undefined, before: 'a\n', after: content } as unknown as FsWriteOutcome
+      },
+    })
+    const trustPolicy = createTrustPolicy({ allowWrite: true, protectedPaths: ['.github/**'] })
+    trustPolicy.bindWriteContext({ changedPaths: ['.github/workflows/ci.yml'], binaryPaths: [] })
+    const deps = writeDepsFixture({ fs, trustPolicy })
+    const request = await writeRequestFixture()
+
+    await expect(mutate(request, [
+      { path: '.github/workflows/ci.yml', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' },
+    ], deps)).rejects.toThrow(/protected/)
+    expect(writes).toHaveLength(0)
+  })
+
+  it('re-checks red lines: refuses a scripts edit whose diff context misses the key', async () => {
+    const writes: string[] = []
+    const fs = writeFsFixture({
+      lstat: async () => ({ version: undefined, type: 'file' }) as unknown as FsPathInfo,
+      readText: async () => '{\n  "scripts": {\n    "test": "vitest run"\n  }\n}\n',
+      writeText: async (_target, content) => {
+        writes.push(content)
+        return { operation: 'update', version: undefined, before: 'a\n', after: content } as unknown as FsWriteOutcome
+      },
+    })
+    const trustPolicy = createTrustPolicy({ allowWrite: true, protectedPaths: [] })
+    trustPolicy.bindWriteContext({ changedPaths: ['package.json'], binaryPaths: [] })
+    const deps = writeDepsFixture({ fs, trustPolicy })
+    const request = await writeRequestFixture()
+
+    // The hunk body only shows the script value; the `"scripts"` key is absent.
+    await expect(mutate(request, [
+      { path: 'package.json', diff: '@@ -3,1 +3,1 @@\n-    "test": "vitest run"\n+    "test": "vitest run && evil"\n' },
+    ], deps)).rejects.toThrow(/scripts/)
+    expect(writes).toHaveLength(0)
+  })
 })
 
 // --- validation gate + commit gate (#35) ------------------------------------
@@ -700,6 +756,7 @@ function commitFixture(over: {
   })
   const deps: StageDeps = depsFixture({
     forges,
+    trustPolicy: writeTrustPolicyFixture(),
     fs: writeFsFixture({
       lstat: async (path) => (path === 'src/a.ts' ? { version: undefined, type: 'file' } as unknown as FsPathInfo : undefined),
       readText: async () => 'a\n',

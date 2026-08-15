@@ -13,6 +13,7 @@ import {
   explainDenialReason,
   meetsTrust,
   resolveTrust,
+  scriptsFieldChanged,
   toolRestrictionFor,
   visibleTools,
   writeRedLineViolation,
@@ -471,6 +472,14 @@ describe('writeRedLineViolation', () => {
       write: redLine({ path: '.github/workflows/ci.yml' }),
     },
     {
+      name: 'protected .github/** with a leading ./ prefix',
+      write: redLine({ path: './.github/workflows/ci.yml' }),
+    },
+    {
+      name: 'protected .github/** with leading whitespace',
+      write: redLine({ path: '  .github/workflows/ci.yml' }),
+    },
+    {
       name: 'protected Jenkinsfile',
       write: redLine({ path: 'Jenkinsfile' }),
     },
@@ -548,6 +557,36 @@ describe('writeRedLineViolation', () => {
   })
 })
 
+describe('scriptsFieldChanged', () => {
+  const manifest = (scripts: unknown): string => JSON.stringify({ name: 'x', scripts })
+
+  it('detects a script-value edit whose diff context would not reach the "scripts" key', () => {
+    const before = manifest({ build: 'tsc', test: 'vitest run' })
+    const after = manifest({ build: 'tsc', test: 'vitest run --coverage' })
+    expect(scriptsFieldChanged(before, after)).toBe(true)
+  })
+
+  it('reports no change when only dependencies move (field-level)', () => {
+    const before = JSON.stringify({ name: 'x', scripts: { test: 'vitest' }, dependencies: { a: '1' } })
+    const after = JSON.stringify({ name: 'x', scripts: { test: 'vitest' }, dependencies: { a: '2' } })
+    expect(scriptsFieldChanged(before, after)).toBe(false)
+  })
+
+  it('treats adding or removing the scripts field as a change', () => {
+    expect(scriptsFieldChanged('{"name":"x"}', '{"name":"x","scripts":{"a":"1"}}')).toBe(true)
+    expect(scriptsFieldChanged('{"name":"x","scripts":{"a":"1"}}', '{"name":"x"}')).toBe(true)
+  })
+
+  it('fails closed when a manifest cannot be parsed', () => {
+    expect(scriptsFieldChanged('not json', 'not json either')).toBe(true)
+  })
+
+  it('treats an empty (new) manifest as having no scripts', () => {
+    expect(scriptsFieldChanged('', '{"name":"x","dependencies":{"a":"1"}}')).toBe(false)
+    expect(scriptsFieldChanged('', '{"name":"x","scripts":{"a":"1"}}')).toBe(true)
+  })
+})
+
 describe('createTrustPolicy write context', () => {
   function config(over: Partial<Config> = {}): Config {
     return { allowWrite: false, protectedPaths: [], ...over }
@@ -563,6 +602,36 @@ describe('createTrustPolicy write context', () => {
 
     dispose()
     expect(policy.writeContext).toBeUndefined()
+  })
+
+  it('rejectWrite fails closed when no write-guard context is bound', () => {
+    const policy = createTrustPolicy(config())
+    expect(policy.rejectWrite('src/a.ts', '@@ -1 +1 @@\n-x\n+y\n', 'x\n', 'y\n')).toMatch(/no write-guard context/)
+  })
+
+  it('rejectWrite re-checks a protected path at the mutate stage', () => {
+    const policy = createTrustPolicy(config({ protectedPaths: ['.github/**'] }))
+    policy.bindWriteContext({ changedPaths: ['.github/workflows/ci.yml'], binaryPaths: [] })
+    expect(policy.rejectWrite('.github/workflows/ci.yml', '@@ -1 +1 @@\n-x\n+y\n', 'x\n', 'y\n'))
+      .toMatch(/protected/)
+  })
+
+  it('rejectWrite catches a scripts edit the diff-based guard would miss', () => {
+    const policy = createTrustPolicy(config())
+    policy.bindWriteContext({ changedPaths: ['package.json'], binaryPaths: [] })
+    // The diff hunk only shows the script VALUE, never the `"scripts"` key.
+    const diff = '@@ -3,1 +3,1 @@\n-    "test": "vitest run"\n+    "test": "vitest run && evil"\n'
+    const before = '{\n  "scripts": {\n    "test": "vitest run"\n  }\n}\n'
+    const after = '{\n  "scripts": {\n    "test": "vitest run && evil"\n  }\n}\n'
+    expect(policy.rejectWrite('package.json', diff, before, after)).toMatch(/scripts/)
+  })
+
+  it('rejectWrite allows a package.json change that does not touch scripts', () => {
+    const policy = createTrustPolicy(config())
+    policy.bindWriteContext({ changedPaths: ['package.json'], binaryPaths: [] })
+    const before = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"1"}}'
+    const after = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"2"}}'
+    expect(policy.rejectWrite('package.json', '@@ -1 +1 @@\n', before, after)).toBeUndefined()
   })
 })
 

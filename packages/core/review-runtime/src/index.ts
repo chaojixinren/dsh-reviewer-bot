@@ -1133,6 +1133,15 @@ export async function mutate(
     if (!appliedPatch.ok) {
       throw new ReviewError('E_WRITE_REJECTED', 'mutate', `patch for '${excerpt(patch.path)}' does not apply: ${appliedPatch.reason}`, false)
     }
+    // The monotonic write red lines are re-checked here, against the file's
+    // actual before/after content, not only at `propose_patch` time. The
+    // tool-call guard fires before the session event that records the patch, so
+    // a guard denial alone cannot remove the proposal; this authoritative check
+    // is what stops a red-lined patch from ever landing on disk.
+    const redLine = deps.trustPolicy.rejectWrite(patch.path, patch.diff, before, appliedPatch.content)
+    if (redLine !== undefined) {
+      throw new ReviewError('E_WRITE_REJECTED', 'mutate', redLine, false)
+    }
     plan.push({ patch, target, content: appliedPatch.content })
   }
 
