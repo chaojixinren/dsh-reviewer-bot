@@ -1,0 +1,21 @@
+// Typechecks the test suites, which the build graph in tsconfig.json does not
+// cover: each package project is `rootDir: src` + `composite`, so test/ files
+// sit outside it and would otherwise be checked by nobody. Vitest transpiles
+// without typechecking, so a test that does not compile still reports green.
+//
+// Separate project, not a reference: tests import `../src/index.ts` by path,
+// which needs allowImportingTsExtensions, which in turn requires noEmit — and a
+// referenced project may not disable emit.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/*/*/test/**/*.ts"
+  ]
+}

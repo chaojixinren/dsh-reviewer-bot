@@ -70,6 +70,19 @@ erDiagram
 
 **强约束**：`blocker` 必须带 `failureScenario`（具体输入/状态 → 错误输出或崩溃）。写不出可复现场景的一律降级为 `major`。这条规则挡住绝大部分「听起来很严重但其实是猜的」噪音。
 
+## 收窄通道与不变量
+
+`RawProposal → Finding` 只允许经过 **`narrowProposal`**（`packages/core/review-core`）。它是模型输出变成可发布 `Finding` 的唯一受控通道，落实 docs/README 的「模型只提议，控制器才决定」：
+
+- **收窄返回 `Accepted | Rejected`，不抛异常**。坏提议是预期的模型行为，必须进 `ReviewResult.discarded`，而不是被当作崩溃。拒绝码（`missing-title` / `unsafe-path` / `invalid-patch` …）是 `DiscardedProposal.reason` 的机器可读前缀。
+- **严重度按 rank 而非字典序**：`SEVERITY_ORDER` 是唯一排序真源；`effectiveSeverity` 落地上面的「blocker / `requiresScenario` 无场景降级」规则。
+- **锚定类型收窄**：`AnchoredAnchor`（`anchored: true`，无 `fallbackReason`）与 `FallbackAnchor`（`anchored: false`，必带 `fallbackReason`）互斥，锚定失败降级而非丢弃在类型层就不可省略理由。
+- **品牌化 ID 只有构造器可造**（`requestId` / `forgeId` / `commitSha` …），禁止 `as RequestId` 裸转；空值抛错，ID 来自受控代码，空即 bug。
+- **`findingInvariantViolation` 是后置兜底网**：任何绕过 `narrowProposal` 进入 `Finding` 的路径（replay 快照、手工构造的测试夹具）在发布前都会再校验一次——标题/正文非空、severity 合法、`findingId` 非空、blocker 必带场景、anchor 路径安全且 `anchored` 与 `fallbackReason` 一致。
+- **`findingDedupeKey` 是跨切片去重身份**（M4 分片并行）：`path \0 line \0 ruleId \0 title(trim+小写)`，用 `\0` 连接因为 `isSafeRelativePath` 已拒绝 NUL，组件内不可能伪造碰撞。注意它不同于 docs/06 的 per-finding 发布幂等键（`hash(path + anchor + ruleId)`），后者解决重试不重复发评论，前者解决多切片同一问题合并为一条。
+
+路径安全统一走 `isSafeRelativePath`：纯语法判断，拒绝绝对路径、盘符、`..` 穿越与 NUL，不解析符号链接——符号链接落界属于 M3 sandbox 层（docs/03）。
+
 ## result-json 契约
 
 采用带 `schemaVersion` 的信封结构，便于消费方在字段演进时做兼容判断：

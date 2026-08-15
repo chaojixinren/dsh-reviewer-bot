@@ -163,4 +163,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export type { ChangeRequestId }
+// Re-exported because they appear in this module's own public signatures
+// (`ForgeGateway.id`, `resolve`, `require`), so a consumer cannot name them
+// without reaching past this package into review-core.
+export type { ChangeRequestId, ForgeId }
