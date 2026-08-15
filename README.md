@@ -2,7 +2,7 @@
 
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
 
-> **当前状态：M2（规则与本地化）进行中。** M1 只读评审闭环已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`），配 322 例单测（13 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M2 已交付 `rule-registry`（规则包注册表）、`rules-baseline`（基线规则包）、`forge-local`（本地 git provider，离线 dry-run）；`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）仍为脚手架。M3 写模式与 M4 生态（GitLab provider、webhook 等）尚未开始。
+> **当前状态：M2（规则与本地化）已完成。** M1 只读评审闭环已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`），配 355 例单测（14 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M2 已全部交付：`rule-registry`（规则包注册表）、`rules-baseline`（基线规则包）、`forge-local`（本地 git provider，离线 dry-run）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）。M3 写模式与 M4 生态（GitLab provider、webhook 等）尚未开始。
 
 ## 为什么不是又一个 CI Action
 

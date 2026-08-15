@@ -63,8 +63,8 @@ flowchart LR
 | M1 | progress sticky 上报 | 3d | forge + github | |
 | M1 | driver-action | 4d | validator | ✅ |
 | M2 | rule-registry | 4d | review-core | ✅ |
-| M2 | rules-baseline | 6d | rule-registry | |
-| M2 | forge-local | 4d | forge 接口 | |
+| M2 | rules-baseline | 6d | rule-registry | ✅ |
+| M2 | forge-local | 4d | forge 接口 | ✅ |
 | M2 | driver-cli + replay | 6d | rule-registry + forge-local | ✅ |
 | M3 | sandbox 隔离 | 5d | driver-cli + replay | ✅ |
 | M3 | guard 硬红线 | 3d | sandbox 隔离 | |
@@ -158,8 +158,8 @@ flowchart LR
 
 M0 与 M1 均已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）；只读评审闭环全部合入 `main`（PR #13–#19）。
 
-M2 进行中，已交付 3/4：`rule-registry`（`reviewRules` 服务与规则包注册表，PR #29）、`rules-baseline`（基线规则包，PR #30）、`forge-local`（本地 git provider，离线 dry-run，PR #28）。
+M2 已完成 4/4：`rule-registry`（`reviewRules` 服务与规则包注册表，PR #29）、`rules-baseline`（基线规则包，PR #30）、`forge-local`（本地 git provider，离线 dry-run，PR #28）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`，PR #31）。
 
-已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 13 个测试文件、322 例单测全绿。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 14 个测试文件、355 例单测全绿。
 
-未实现（刻意）：M2 的 `driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）仍为脚手架占位；M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 同样未实现。下一步完成 M2 收尾：`driver-cli`（#25）。
+未实现（刻意）：M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 尚未实现。下一步进入 M3 写模式。
