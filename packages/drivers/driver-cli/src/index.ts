@@ -22,7 +22,9 @@ export interface CliOptions {
   readonly json?: boolean
 }
 
-export declare function parseArgs(argv: readonly string[]): CliOptions
+export function parseArgs(_argv: readonly string[]): CliOptions {
+  throw new Error('not implemented: parseArgs (M2)')
+}
 
 /**
  * A snapshot holds the whole bounded context: diff shards, rule set, memory
@@ -30,11 +32,17 @@ export declare function parseArgs(argv: readonly string[]): CliOptions
  * by default. Remote archiving must be configured explicitly — that is a real
  * private-code egress path, not a convenience toggle.
  */
-export declare function replay(runId: string): Promise<ReviewResult>
+export function replay(_runId: string): Promise<ReviewResult> {
+  throw new Error('not implemented: replay (M2)')
+}
 
-export declare function renderToTty(result: ReviewResult): string
+export function renderToTty(_result: ReviewResult): string {
+  throw new Error('not implemented: renderToTty (M2)')
+}
 
-export declare function main(argv: readonly string[]): Promise<number>
+export function main(_argv: readonly string[]): Promise<number> {
+  throw new Error('not implemented: main (M2)')
+}
 
 // TODO(M2): `dshrb review --local` through the forge-local provider, so the
 //           runtime cannot tell CI from a laptop.

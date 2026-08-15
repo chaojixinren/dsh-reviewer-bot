@@ -97,10 +97,8 @@ flowchart LR
     RC --> FGP & TPP & RRP & PRP & TR & RBL
     FGP --> FGH & FGL & RTP & PRP
     TPP --> RTP
-    RRP --> RTP & RBL
+    RRP --> RTP & RBL & TR
     RTP --> DAC & DWH & DCL
-    PRP --> RTP
-    TR --> RTP
 ```
 
 依赖方向严格单向：`review-core` 是无依赖的领域层，`review-runtime` 是唯一的编排汇聚点，drivers 是最外层薄壳。

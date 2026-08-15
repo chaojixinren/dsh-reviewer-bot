@@ -13,6 +13,7 @@
     }
   },
   "dependencies": {
+    "@dshrb/forge": "workspace:*",
     "@dshrb/forge-github": "workspace:*",
     "@dshrb/progress": "workspace:*",
     "@dshrb/review-runtime": "workspace:*",

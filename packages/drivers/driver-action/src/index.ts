@@ -25,7 +25,9 @@ export interface ActionInputs {
   readonly 'rule-packs'?: string
 }
 
-export declare function readInputs(env: NodeJS.ProcessEnv): ActionInputs
+export function readInputs(_env: NodeJS.ProcessEnv): ActionInputs {
+  throw new Error('not implemented: readInputs (M1)')
+}
 
 /**
  * Writes every scalar output plus `result-json`.
@@ -34,9 +36,13 @@ export declare function readInputs(env: NodeJS.ProcessEnv): ActionInputs
  * Model-derived strings stay untrusted here: they must reach downstream steps
  * through env vars, never spliced into a shell command.
  */
-export declare function writeOutputs(result: ReviewResult): Promise<void>
+export function writeOutputs(_result: ReviewResult): Promise<void> {
+  throw new Error('not implemented: writeOutputs (M1)')
+}
 
-export declare function main(): Promise<void>
+export function main(): Promise<void> {
+  throw new Error('not implemented: main (M1)')
+}
 
 // TODO(M1): implement main() — readInputs → runReview → writeOutputs, with the
 //           watchdog finalizing outputs before the job-level timeout hits.

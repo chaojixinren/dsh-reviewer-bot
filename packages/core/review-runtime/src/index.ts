@@ -63,36 +63,56 @@ export interface StageDeps {
 
 // --- Stages -----------------------------------------------------------------
 
-export declare function ingest(raw: unknown, deps: StageDeps): Promise<NormalizedEvent>
+export function ingest(_raw: unknown, _deps: StageDeps): Promise<NormalizedEvent> {
+  throw new Error('not implemented: ingest (M1)')
+}
 /** Commands must appear on the comment's FIRST line, so quoting someone else's
  *  comment cannot trigger a run. */
-export declare function route(event: NormalizedEvent): ReviewIntent
-export declare function authorize(
-  event: NormalizedEvent, intent: ReviewIntent, deps: StageDeps,
-): Promise<ReviewRequest>
-export declare function assembleContext(
-  request: ReviewRequest, deps: StageDeps,
-): Promise<BoundedContext>
-export declare function reason(ctx: BoundedContext): Promise<readonly RawProposal[]>
+export function route(_event: NormalizedEvent): ReviewIntent {
+  throw new Error('not implemented: route (M1)')
+}
+export function authorize(
+  _event: NormalizedEvent, _intent: ReviewIntent, _deps: StageDeps,
+): Promise<ReviewRequest> {
+  throw new Error('not implemented: authorize (M1)')
+}
+export function assembleContext(
+  _request: ReviewRequest, _deps: StageDeps,
+): Promise<BoundedContext> {
+  throw new Error('not implemented: assembleContext (M1)')
+}
+export function reason(_bounded: BoundedContext): Promise<readonly RawProposal[]> {
+  throw new Error('not implemented: reason (M1)')
+}
 /**
  * Turns untrusted proposals into publishable findings: schema check, path
  * normalization, diff-line anchoring, size caps, dedupe, and the blocker
  * failureScenario requirement. Rejections are reported, not swallowed.
  */
-export declare function validate(
-  proposals: readonly RawProposal[], diff: UnifiedDiff, rules: readonly Rule[],
-): { findings: readonly Finding[]; discarded: readonly { reason: string; rawTitle: string }[] }
-export declare function publish(
-  target: ReviewTarget, findings: readonly Finding[], deps: StageDeps,
-): Promise<void>
-export declare function mutate(
-  request: ReviewRequest, findings: readonly Finding[], deps: StageDeps,
-): Promise<void>
+export function validate(
+  _proposals: readonly RawProposal[], _diff: UnifiedDiff, _rules: readonly Rule[],
+): { findings: readonly Finding[]; discarded: readonly { reason: string; rawTitle: string }[] } {
+  throw new Error('not implemented: validate (M1)')
+}
+export function publish(
+  _target: ReviewTarget, _findings: readonly Finding[], _deps: StageDeps,
+): Promise<void> {
+  throw new Error('not implemented: publish (M1)')
+}
+export function mutate(
+  _request: ReviewRequest, _findings: readonly Finding[], _deps: StageDeps,
+): Promise<void> {
+  throw new Error('not implemented: mutate (M3)')
+}
 /** Never throws: a terminal result is always written, including on timeout. */
-export declare function report(partial: Partial<ReviewResult>, failure?: Failure): ReviewResult
+export function report(_partial: Partial<ReviewResult>, _failure?: Failure): ReviewResult {
+  throw new Error('not implemented: report (M1)')
+}
 
 /** Runs the full pipeline under the watchdog. */
-export declare function runReview(raw: unknown, deps: StageDeps, config: Config): Promise<ReviewResult>
+export function runReview(_raw: unknown, _deps: StageDeps, _config: Config): Promise<ReviewResult> {
+  throw new Error('not implemented: runReview (M1)')
+}
 
 export type { Phase }
 

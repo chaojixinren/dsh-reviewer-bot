@@ -17,15 +17,15 @@
     "lib/types/**/*.d.ts"
   ],
   "dependencies": {
-    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@dshrb/review-core": "workspace:*",
     "@dshrb/review-runtime": "workspace:*",
     "@dshrb/forge-github": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*"
+    "@deepseek-ai/cordis": "4.0.1"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "*"
+    "@deepseek-ai/cordis": "4.0.1"
   }
 }
