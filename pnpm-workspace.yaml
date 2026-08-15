@@ -1,7 +1,19 @@
 packages:
   - 'packages/*/*'
   - 'bundle'
+
+# Postinstall scripts run with full local privileges, so allow them only where
+# a package is unusable without one. esbuild needs its postinstall to place the
+# platform binary that vitest/vite load.
+#
+# The rest are native builds pulled in transitively by the DSH dependency tree
+# (terminal, FFI, subprocess, protobuf, vendor SDKs). We typecheck and probe
+# against those packages but never load their compiled halves, so the builds
+# are declined. Revisit if a driver ends up needing a real DSH subprocess.
 allowBuilds:
-  # esbuild ships its platform binary through optionalDependencies; its
-  # postinstall is only a fallback downloader, so it can stay disabled.
-  esbuild: false
+  '@deepseek-ai/dsh-subprocess-local': false
+  '@google/genai': false
+  esbuild: true
+  koffi: false
+  node-pty: false
+  protobufjs: false

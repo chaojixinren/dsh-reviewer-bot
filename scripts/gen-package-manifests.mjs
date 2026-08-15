@@ -6,6 +6,15 @@
  * private, type module, main lib/index.js, types lib/types/index.d.ts,
  * cordis in BOTH peerDependencies and devDependencies at the same range.
  *
+ * Upstream versions are pinned exactly, not ranged. DSH is a developer
+ * preview that documents breaking changes between rc builds, so a range
+ * would let a patch bump silently move an extension point. Bump these
+ * constants deliberately, then re-run @dshrb/signature-probe's runtime
+ * check to confirm the signatures still hold.
+ *
+ * A plugin peer-depends on the specific dsh-* package that owns each
+ * service it injects, never on @deepseek-ai/dsh wholesale.
+ *
  * Re-run after adding a package to the table below.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -14,10 +23,20 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VERSION = '0.1.0'
-// Pinned to the exact versions probed in `.probe/` (see docs/09-roadmap.md
-// compatibility matrix). DSH is in developer preview: never float these.
 const CORDIS = '4.0.1'
 const SCHEMASTERY = '3.18.1'
+/** All @deepseek-ai/dsh-* packages ship in lockstep with @deepseek-ai/dsh. */
+const DSH = '0.1.0-rc.6'
+
+/**
+ * Upstream dsh-* packages a given package peer-depends on, keyed by short
+ * name. Verified against @dshrb/signature-probe: dsh-tools' own plugin
+ * injects systemPrompt, so anything using ctx.tools needs both present.
+ */
+const UPSTREAM = {
+  'tool-review': ['dsh-tools', 'dsh-system-prompt'],
+  'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm'],
+}
 
 /** dir, package name, description, workspace deps (short names) */
 const PACKAGES = [
@@ -43,10 +62,18 @@ for (const [dir, short, description, deps] of PACKAGES) {
   mkdirSync(join(pkgDir, 'src'), { recursive: true })
 
   const dependencies = { '@deepseek-ai/schemastery': SCHEMASTERY }
-  const devDependencies = { '@deepseek-ai/cordis': CORDIS }
   for (const d of deps) {
     dependencies[`@dshrb/${d}`] = 'workspace:*'
   }
+
+  // cordis and every injected service's owner appear in peer + dev at the
+  // same pinned version: peer so the host supplies one copy, dev so this
+  // package can typecheck and test standalone.
+  const peerDependencies = { '@deepseek-ai/cordis': CORDIS }
+  for (const u of UPSTREAM[short] ?? []) {
+    peerDependencies[`@deepseek-ai/${u}`] = DSH
+  }
+  const devDependencies = { ...peerDependencies }
 
   const pkg = {
     name: `@dshrb/${short}`,
@@ -64,7 +91,7 @@ for (const [dir, short, description, deps] of PACKAGES) {
     },
     files: ['lib/index.js', 'lib/types/**/*.d.ts'],
     dependencies,
-    peerDependencies: { '@deepseek-ai/cordis': CORDIS },
+    peerDependencies,
     devDependencies,
   }
   writeFileSync(join(pkgDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')

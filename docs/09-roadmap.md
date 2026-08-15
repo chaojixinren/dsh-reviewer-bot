@@ -131,12 +131,22 @@ flowchart LR
 
 ## 兼容矩阵（M1 开始维护）
 
-| dshrb | `@deepseek-ai/dsh` | `@deepseek-ai/cordis` | Node | 状态 |
-|---|---|---|---|---|
-| 0.1.x | 待锁定 | 待锁定 | 22.19+ / 24+ / 26 | 设计中 |
+| dshrb | `@deepseek-ai/dsh-*` | `@deepseek-ai/cordis` | `@deepseek-ai/schemastery` | Node | 状态 |
+|---|---|---|---|---|---|
+| 0.1.x | 0.1.0-rc.6 | 4.0.1 | 3.18.1 | 22.19+ / 24+ | 已锁定 |
 
-上游版本在 M0 收尾时锁定并回填此表。策略：跟随上游 rc 但不追最新，滞后一个 rc 版本以规避回归。
+版本精确锁定（不写 range，不写 `*`）。DSH 处于 developer preview 且明确声明 rc 之间可能有破坏性变更，range 会让一次 patch 升级悄悄换掉扩展点签名。所有 `dsh-*` 包与 `@deepseek-ai/dsh` 同版本发布，统一按 `DSH` 常量走。
+
+单一事实来源是 `scripts/gen-package-manifests.mjs` 顶部的 `CORDIS` / `SCHEMASTERY` / `DSH` 三个常量；改完重新生成，13 个 manifest 一起更新，避免逐个手改漂移。
+
+升级流程：改常量 → `pnpm install` → `pnpm run probe`。最后一步跑 `@dshrb/signature-probe`，它在真实 Cordis 容器里验证四个我们依赖的扩展点契约仍然成立；签名变了会在这里失败，而不是在生产里静默失败。
+
+策略：跟随上游 rc 但不追最新。当前锁在 rc.6（写作时的最新 rc）；后续升级滞后一个 rc 以规避回归。
 
 ## 当前状态
 
-M0 进行中：设计文档已完成，脚手架目录已建立，业务代码未实现（按需求刻意保留）。下一步是 workspace 与构建链打通，然后进入 M1。
+M0 进行中：设计文档已完成，脚手架目录已建立，业务代码未实现（按需求刻意保留）。
+
+已打通：workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test），上游版本锁定，`@dshrb/signature-probe` 在真实容器里验证扩展点签名（7/7）。
+
+未实现（刻意）：9 个 `apply()` 抛 `not implemented`，32 处 TODO（M1:12 / M2:6 / M3:2 / M4:12），0 个测试文件。下一步进入 M1。

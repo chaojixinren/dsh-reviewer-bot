@@ -16,5 +16,6 @@ dist/
 # Throwaway dir for probing upstream type definitions.
 .probe/
 
-# Local git worktrees used for feature development.
+# Linked git worktrees and the local pnpm store live inside the checkout.
 .worktrees/
+.pnpm-store/
