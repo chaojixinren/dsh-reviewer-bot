@@ -71,11 +71,44 @@ describe('createAnchorResolver', () => {
     const d = diff([file({
       path: 'src/new.ts', previousPath: 'src/old.ts', hunks: [hunk({ oldStart: 1, newStart: 1 })],
     })])
+    // A right-side hit must carry the forge-routable new path, never the stale
+    // previousPath the proposal cited: publish posts `anchor.path` verbatim.
     expect(resolver.resolve(d, 'src/old.ts', 1)).toEqual({
-      path: 'src/old.ts', line: 1, side: 'right', anchored: true,
+      path: 'src/new.ts', line: 1, side: 'right', anchored: true,
     })
     // The new path still resolves too.
     expect(resolver.resolve(d, 'src/new.ts', 1).anchored).toBe(true)
+  })
+
+  it('maps a removed line of a renamed file onto previousPath', () => {
+    const d = diff([file({
+      path: 'src/new.ts', previousPath: 'src/old.ts',
+      hunks: [hunk({ oldStart: 5, oldLines: 2, newStart: 3, newLines: 0 })],
+    })])
+    // Old-only line 6 lives under the old path on the left side.
+    expect(resolver.resolve(d, 'src/old.ts', 6)).toEqual({
+      path: 'src/old.ts', line: 6, side: 'left', anchored: true,
+    })
+    // Citing the new path still remaps the removed line to its old path.
+    expect(resolver.resolve(d, 'src/new.ts', 6)).toEqual({
+      path: 'src/old.ts', line: 6, side: 'left', anchored: true,
+    })
+  })
+
+  it('right side wins across hunks when a line falls in both', () => {
+    // Hunk 1 covers only old lines 10-11; hunk 2 covers only new lines 10-11.
+    // Line 10 is an old-side hit in the first hunk but a new-side hit in the
+    // second. The new side must win: an earlier left hit must not shadow a
+    // later right hit.
+    const d = diff([file({
+      hunks: [
+        hunk({ oldStart: 10, oldLines: 2, newStart: 10, newLines: 0 }),
+        hunk({ oldStart: 12, oldLines: 0, newStart: 10, newLines: 2 }),
+      ],
+    })])
+    expect(resolver.resolve(d, 'src/a.ts', 10)).toEqual({
+      path: 'src/a.ts', line: 10, side: 'right', anchored: true,
+    })
   })
 
   it('degrades a binary file, which has no line hunks', () => {

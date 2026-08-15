@@ -191,19 +191,27 @@ function resolve(diff: UnifiedDiff, path: string, line: number): Anchor {
     return anchorFallback(path, line, `file '${path}' is not in the diff`)
   }
   if (file.binary) {
-    return anchorFallback(path, line, `file '${path}' is binary and has no diff lines to anchor to`)
+    return anchorFallback(file.path, line, `file '${file.path}' is binary and has no diff lines to anchor to`)
   }
-  // The model reports new-side line numbers, so try the right side first. A
-  // line lands on the left only when it names a removed line.
+  // The model reports new-side line numbers, so the right (new) side is checked
+  // across ALL hunks before any left-side hit is considered. Returning the first
+  // left hit would let an earlier hunk's old range shadow a later hunk's new
+  // range, violating the "right wins whenever both are possible" contract.
   for (const hunk of file.hunks) {
     if (line >= hunk.newStart && line < hunk.newStart + hunk.newLines) {
-      return anchorAt(path, line, 'right')
-    }
-    if (line >= hunk.oldStart && line < hunk.oldStart + hunk.oldLines) {
-      return anchorAt(path, line, 'left')
+      return anchorAt(file.path, line, 'right')
     }
   }
-  return anchorFallback(path, line, `line ${line} is outside every diff hunk in '${path}'`)
+  for (const hunk of file.hunks) {
+    if (line >= hunk.oldStart && line < hunk.oldStart + hunk.oldLines) {
+      // A removed line of a renamed file lives under `previousPath`; a
+      // non-renamed file has none, so fall back to the only real path. The
+      // anchor must carry a forge-routable path, never the raw `path` the
+      // proposal cited, or publish would send a stale path on a rename.
+      return anchorAt(file.previousPath ?? file.path, line, 'left')
+    }
+  }
+  return anchorFallback(file.path, line, `line ${line} is outside every diff hunk in '${file.path}'`)
 }
 
 export function createForgeRegistry(): ForgeRegistry {
