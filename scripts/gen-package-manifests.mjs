@@ -37,6 +37,8 @@ const UPSTREAM = {
   'trust-policy': ['dsh-tools', 'dsh-system-prompt'],
   'tool-review': ['dsh-tools', 'dsh-system-prompt'],
   'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm'],
+  // progress subscribes to `session/event`, owned by dsh-session.
+  'progress': ['dsh-session'],
 }
 
 /** dir, package name, description, workspace deps (short names) */
