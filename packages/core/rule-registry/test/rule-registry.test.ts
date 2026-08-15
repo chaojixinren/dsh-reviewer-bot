@@ -60,6 +60,22 @@ describe('register / dispose', () => {
     expect(registry.match('src/index.ts').map((rule) => rule.id)).toEqual([ruleId('second')])
     expect(registry.packs()).toEqual([{ id: 'baseline', version: '2.0.0', title: 'Baseline rules' }])
   })
+
+  it('a stale disposer does not evict a same-id replacement pack', () => {
+    const registry = createReviewRuleRegistry(configFixture())
+    const disposeFirst = registry.register(
+      packFixture({ version: '1.0.0', rules: [ruleFixture({ id: ruleId('first') })] }),
+    )
+    registry.register(
+      packFixture({ version: '2.0.0', rules: [ruleFixture({ id: ruleId('second') })] }),
+    )
+
+    // Running the earlier disposer must leave the replacement pack untouched.
+    disposeFirst()
+
+    expect(registry.match('src/index.ts').map((rule) => rule.id)).toEqual([ruleId('second')])
+    expect(registry.packs()).toEqual([{ id: 'baseline', version: '2.0.0', title: 'Baseline rules' }])
+  })
 })
 
 describe('glob matching', () => {

@@ -95,7 +95,12 @@ export function createReviewRuleRegistry(config: Config): ReviewRuleRegistry {
   function register(pack: RulePack): () => void {
     packs.set(pack.id, pack)
     return () => {
-      packs.delete(pack.id)
+      // Only evict when the stored pack is still the one this disposer owns.
+      // A same-id re-register replaces the entry, so running the STALE disposer
+      // must not remove the replacement pack that a newer fiber still depends on.
+      if (packs.get(pack.id) === pack) {
+        packs.delete(pack.id)
+      }
     }
   }
 
