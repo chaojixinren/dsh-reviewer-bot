@@ -117,6 +117,19 @@ flowchart TB
 
 用户只需一条命令即可装入既有 profile，与生态内其他插件共享同一个 `ctx`——这是 B1 的核心收益：黑盒 worker 形态拿不到生态扩展点，而插件形态可以。
 
+### 装入既有 profile（实操路径）
+
+用户已经有一个 profile（`$DSH_HOME/profiles/mine`，声明 `dsh.profile`），只想把评审能力加进去而不重排它：
+
+1. `dsh plugin add @dshrb/bundle` —— 把 bundle 写进该 profile 的 `dsh.profile.bundles[]`，其余配置不动。
+2. `dsh --profile mine` —— 启动时 loader 先应用 `bundle/cordis.patch.yml`（bundle 层），再应用用户自己的 patch 层。
+
+装入后的行为由层序叠加决定：
+
+- 我们的默认值都在 bundle 层：`minSeverity: minor`、`timeoutMinutes: 25`、`allowWrite: false`、`enableDiagnose: true`。用户在自己 profile 的 patch 层写同名字段即可覆盖它们。
+- `allowWrite` 是唯一例外：它**不能**从 `.dshrb.yml`（L3）或评论内联参数（L5）抬高，只能由 bundle 层（L2）或 Action inputs / 环境变量（L4）设置——否则 fork PR 在分支上加个文件就能拿到写权限。
+- 装完即与生态插件共享同一个 `ctx`：飞书通知插件能直接把评审结论推到群里、记忆插件能增强跨 PR 记忆，我们不需要为它们写任何飞书/记忆代码（见 docs/08 模式 C）。
+
 ## 安装路径
 
 ```mermaid

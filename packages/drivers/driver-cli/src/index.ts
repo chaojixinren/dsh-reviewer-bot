@@ -418,6 +418,7 @@ export async function reviewLocal(deps: ReviewLocalDeps): Promise<ReviewResult> 
     parallelShards: true,
     snapshotReplay: deps.writeSnapshot !== undefined,
     allowWrite: false,
+    enableDiagnose: true,
     minSeverity: 'minor',
     testCommands: [],
     validationEnv: [],

@@ -135,6 +135,7 @@ function configFixture(over: Partial<Config> = {}): Config {
     parallelShards: true,
     snapshotReplay: true,
     allowWrite: false,
+    enableDiagnose: true,
     minSeverity: 'minor',
     testCommands: [],
     validationEnv: [],
@@ -251,6 +252,14 @@ describe('route', () => {
 
   it('routes an unknown command to none', () => {
     expect(route(comment('@dsr summarize'))).toBe('none')
+  })
+
+  it('routes diagnose to none when the diagnose intent is disabled, without touching other intents', () => {
+    expect(route({ ...comment(''), kind: 'check-failed' }, { enableDiagnose: false })).toBe('none')
+    expect(route(comment('@dsr diagnose'), { enableDiagnose: false })).toBe('none')
+    expect(route(comment('@dsr review'), { enableDiagnose: false })).toBe('review')
+    // Default (option omitted) keeps diagnose enabled.
+    expect(route({ ...comment(''), kind: 'check-failed' })).toBe('diagnose')
   })
 })
 
@@ -1080,6 +1089,23 @@ describe('runReview', () => {
     expect(result.failure?.message).toMatch(/isFork/)
     expect(result.operation).toBe('diagnose')
     expect(result.trust).toBe('untrusted')
+    expect(listed).toBe(false)
+  })
+
+  it('returns neutral when the diagnose intent is disabled', async () => {
+    let listed = false
+    const deps = depsFixture({
+      forges: gatewayFixture({
+        listFailedChecks: async () => {
+          listed = true
+          return []
+        },
+      }),
+    })
+    const result = await runReview(checkFailedPayload(), deps, configFixture({ enableDiagnose: false }))
+    expect(result.verdict.status).toBe('neutral')
+    expect(result.operation).toBe('none')
+    // The disabled intent never reaches authorize/context, so no log is read.
     expect(listed).toBe(false)
   })
 })

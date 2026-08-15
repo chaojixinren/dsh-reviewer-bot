@@ -5,7 +5,8 @@
 #
 # Layer order: bundle layers first, then the user's own profile patch — so a
 # user override in their profile always wins. One exception by design:
-# `allowWrite` must not be raisable from a repository-controlled layer.
+# `allowWrite` must not be raisable from a repository-controlled layer (the
+# `.dshrb.yml` / comment layers). The bundle sets the fail-closed default here.
 # See docs/05-plugin-composition.md.
 
 - insert:
@@ -22,6 +23,9 @@
     - id: dshrb-trust-policy
       name: '@dshrb/trust-policy'
       config:
+        # Write mode stays off by default: a one-command install must not hand
+        # write permission to the model. Raise it only from a layer the repo
+        # maintainer controls (Action inputs / the user's own profile patch).
         allowWrite: false
 
     # Forge registry must provide `forges` before any provider injects it.
@@ -45,3 +49,11 @@
       name: '@dshrb/review-runtime'
       config:
         timeoutMinutes: 25
+        # Mirrors trust-policy's `allowWrite` so the two never drift; both are
+        # set from the same maintainer-held layer.
+        allowWrite: false
+        # Read-only diagnostic intent: reads CI failure logs and replies with a
+        # root-cause finding. Requires `trusted-read`, never `allow-write`. Set
+        # false to disable the auto-diagnose on `check-failed` events and the
+        # `@dsr diagnose` command.
+        enableDiagnose: true
