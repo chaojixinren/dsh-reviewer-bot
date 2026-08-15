@@ -4,14 +4,14 @@
 
 ## 当前阶段
 
-项目处于 **M2（规则与本地化）已完成** 阶段：M1 只读评审闭环已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`）。M2 交付规则注册与本地反馈闭环：`rule-registry` + `rules-baseline` 让规则变成可注册、可审计的数据，`forge-local` 提供本地 git provider 支撑离线 dry-run，`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）提供本地反馈闭环——调规则、调提示词不必推 PR 等 CI。M3 写模式已开始：`diagnose` 意图（读 CI 失败日志定位根因并回帖）已落地，`mutate` / `propose_patch` 等写路径仍在推进。
+项目处于 **M3（写模式）已完成** 阶段：M1 只读评审闭环、M2 规则与本地化已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。
 
 动手前请先读：
 
 - [`docs/README.md`](./docs/README.md) —— 设计文档索引与 5 条设计原则
 - [`docs/09-roadmap.md`](./docs/09-roadmap.md) —— 里程碑、验收标准、风险登记与「当前状态」
 
-正在进行的任务以 roadmap 的 **M3 验收标准**为准，欢迎从「当前状态 → 未实现（刻意）」清单里认领。认领前建议先开 issue 说明意图，避免重复劳动。
+正在进行的任务以 roadmap 的 **M4 验收标准**为准，欢迎从「当前状态 → 未实现（刻意）」清单里认领。认领前建议先开 issue 说明意图，避免重复劳动。
 
 ## 环境与快速开始
 

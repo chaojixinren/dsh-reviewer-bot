@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/milestone-M2%20完成-1D76DB" alt="milestone: M2" />
 </p>
 
-> **当前状态：M2（规则与本地化）已完成。** M1 只读评审闭环已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`），配 355 例单测（14 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M2 已全部交付：`rule-registry`（规则包注册表）、`rules-baseline`（基线规则包）、`forge-local`（本地 git provider，离线 dry-run）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）。M3 写模式与 M4 生态（GitLab provider、webhook 等）尚未开始。
+> **当前状态：M3（写模式）已完成。** M1 只读评审闭环、M2 规则与本地化已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`），配 439 例单测（14 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M3 已全部交付：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图。M4 生态（GitLab provider、webhook、bundle 发布、分片并行、跨 PR 记忆等）尚未开始。
 
 ## 为什么不是又一个 CI Action
 
