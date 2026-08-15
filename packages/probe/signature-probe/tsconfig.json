@@ -7,13 +7,5 @@
   },
   "include": [
     "src/**/*"
-  ],
-  "references": [
-    {
-      "path": "../review-core"
-    },
-    {
-      "path": "../forge"
-    }
   ]
 }

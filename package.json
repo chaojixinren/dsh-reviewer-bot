@@ -17,10 +17,11 @@
     "test:watch": "vitest",
     "lint": "oxlint .",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
-    "clean": "rm -rf packages/*/*/lib"
+    "clean": "rm -rf packages/*/*/lib",
+    "probe": "pnpm --filter @dshrb/signature-probe run check"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "24.3.0",
     "oxlint": "1.9.0",
     "typescript": "5.9.2",

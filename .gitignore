@@ -12,3 +12,10 @@ dist/
 
 .omc/
 .DS_Store
+
+# Throwaway dir for probing upstream type definitions.
+.probe/
+
+# Linked git worktrees and the local pnpm store live inside the checkout.
+.worktrees/
+.pnpm-store/

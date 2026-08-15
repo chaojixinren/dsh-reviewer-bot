@@ -12,6 +12,9 @@
       "patch": "./cordis.patch.yml"
     }
   },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.6"
+  },
   "dependencies": {
     "@dshrb/forge-github": "workspace:*",
     "@dshrb/progress": "workspace:*",

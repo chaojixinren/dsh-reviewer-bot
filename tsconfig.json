@@ -14,6 +14,7 @@
     { "path": "./packages/rules/rules-baseline" },
     { "path": "./packages/drivers/driver-action" },
     { "path": "./packages/drivers/driver-webhook" },
-    { "path": "./packages/drivers/driver-cli" }
+    { "path": "./packages/drivers/driver-cli" },
+    { "path": "./packages/probe/signature-probe" }
   ]
 }

@@ -1,9 +1,9 @@
 {
-  "name": "@dshrb/tool-review",
+  "name": "@dshrb/signature-probe",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Model-facing review tools registered on ctx.tools.",
+  "description": "Upstream signature validation. Typechecks and loads against real DSH types to prove the extension-point contracts the other packages assume.",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -16,19 +16,21 @@
     "lib/index.js",
     "lib/types/**/*.d.ts"
   ],
+  "scripts": {
+    "build": "tsc -p .",
+    "check": "tsc -p . && node scripts/runtime-check.mjs"
+  },
   "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.1",
-    "@dshrb/review-core": "workspace:*",
-    "@dshrb/rule-registry": "workspace:*"
+    "@deepseek-ai/schemastery": "3.18.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6"
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6"
   }
 }
