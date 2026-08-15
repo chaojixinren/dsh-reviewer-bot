@@ -11,7 +11,7 @@ import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
 import { countBlockers, findingId, isSafeRelativePath, meetsSeverityThreshold } from '@dshrb/review-core'
 import { narrowProposal, requestId, toDiscarded } from '@dshrb/review-core'
 import type {
-  CommentId, DiscardedProposal, Failure, Finding, NormalizedEvent, Phase,
+  CommentId, CommitSha, DiscardedProposal, Failure, Finding, NormalizedEvent, Phase,
   RawProposal, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
   RulePackSummary, Severity,
 } from '@dshrb/review-core'
@@ -21,7 +21,8 @@ import type {
 } from '@dshrb/forge'
 import type { Rule } from '@dshrb/rule-registry'
 import type { ReviewToolContext } from '@dshrb/tool-review'
-import { capabilitiesFor, resolveTrust } from '@dshrb/trust-policy'
+import { capabilitiesFor, explainDenial, INTENT_MIN_TRUST, meetsTrust, resolveTrust } from '@dshrb/trust-policy'
+import type { ActorContext, TrustPolicy } from '@dshrb/trust-policy'
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
@@ -90,6 +91,12 @@ export interface StageDeps {
   readonly memory: readonly string[]
   /** Active rule packs with versions, for the auditable result-json `rules`. */
   readonly packs?: () => readonly RulePackSummary[]
+  /**
+   * The per-run trust decision, activated by `runReview` after `authorize` so
+   * the agent's visible tool set and the `tools/pre-execute` waterfall gate on
+   * the resolved level rather than the fail-closed `none` default.
+   */
+  readonly trustPolicy: TrustPolicy
   /** The one non-deterministic stage, injected so tests stay offline. */
   readonly runAgent: (bounded: BoundedContext, signal: AbortSignal) => Promise<readonly RawProposal[]>
 }
@@ -141,6 +148,21 @@ function numberField(record: Record<string, unknown>, field: string): number {
   return value
 }
 
+/**
+ * Reads a required commit SHA from a payload. A missing/non-string field and a
+ * malformed SHA both fail as `E_INVALID_PAYLOAD` (non-retryable), not as the
+ * `TypeError` `commitSha` raises for bug-level input — so a payload that omits
+ * `base`/`head` reports a clear payload failure instead of `E_UNEXPECTED`.
+ */
+function requiredSha(value: unknown, field: string): CommitSha {
+  const raw = asString(value, field)
+  try {
+    return commitSha(raw)
+  } catch {
+    throw new ReviewError('E_INVALID_PAYLOAD', 'ingest', `field '${field}' must be a valid git sha (7-40 hex characters)`, false)
+  }
+}
+
 /** Reads `repo`, `changeRequestId`, `baseSha`, `headSha`, `isFork` from a PR-shaped record. */
 function pullRequestTarget(container: Record<string, unknown>): ReviewTarget {
   const pr = container.pull_request
@@ -150,8 +172,8 @@ function pullRequestTarget(container: Record<string, unknown>): ReviewTarget {
   }
   const base = isRecord(pr.base) ? pr.base : undefined
   const head = isRecord(pr.head) ? pr.head : undefined
-  const baseSha = base === undefined ? '' : asString(base.sha, 'pull_request.base.sha')
-  const headSha = head === undefined ? '' : asString(head.sha, 'pull_request.head.sha')
+  const baseSha = requiredSha(base?.sha, 'pull_request.base.sha')
+  const headSha = requiredSha(head?.sha, 'pull_request.head.sha')
   const headRepo = head === undefined || !isRecord(head.repo) ? undefined : head.repo
   const isFork = headRepo === undefined ? true : headRepo.fork === true
 
@@ -162,8 +184,8 @@ function pullRequestTarget(container: Record<string, unknown>): ReviewTarget {
   return {
     repo,
     changeRequestId: changeRequestId(String(numberField(pr, 'pull_request.number'))),
-    baseSha: commitSha(baseSha),
-    headSha: commitSha(headSha),
+    baseSha,
+    headSha,
     isFork,
   }
 }
@@ -182,8 +204,8 @@ function checkRunTarget(checkRun: Record<string, unknown>): ReviewTarget {
   return {
     repo: nonEmpty(asString(repoSource?.full_name, 'check_run.pull_requests[0].repository.full_name'), 'repository.full_name'),
     changeRequestId: changeRequestId(String(numberField(pr, 'check_run.pull_requests[0].number'))),
-    baseSha: commitSha(asString(base?.sha, 'check_run.pull_requests[0].base.sha')),
-    headSha: commitSha(asString(head?.sha, 'check_run.pull_requests[0].head.sha')),
+    baseSha: requiredSha(base?.sha, 'check_run.pull_requests[0].base.sha'),
+    headSha: requiredSha(head?.sha, 'check_run.pull_requests[0].head.sha'),
     isFork: headRepo === undefined ? true : headRepo.fork === true,
   }
 }
@@ -293,6 +315,17 @@ export function route(event: NormalizedEvent): ReviewIntent {
 }
 
 /**
+ * The resolved trust plus the actor context that produced it. The request is
+ * what the pipeline threads downstream; the actor context lets `runReview`
+ * explain a denial and activate the trust policy with the exact same inputs
+ * `resolveTrust` saw, so the policy level can never drift from `request.trust`.
+ */
+export interface AuthorizeResult {
+  readonly request: ReviewRequest
+  readonly actor: ActorContext
+}
+
+/**
  * Resolves trust via `@dshrb/trust-policy` and produces the `ReviewRequest`.
  * The actor's permission and fork status come from the forge's `ActorResolver`;
  * `allowWrite` is composed in from the driver-held configuration, never from the
@@ -300,17 +333,20 @@ export function route(event: NormalizedEvent): ReviewIntent {
  */
 export async function authorize(
   event: NormalizedEvent, intent: ReviewIntent, deps: StageDeps,
-): Promise<ReviewRequest> {
+): Promise<AuthorizeResult> {
   const actorResolver = deps.forges.require<ActorResolver>(event.forgeId, ['actor-resolver'])
   const permission = await actorResolver.resolvePermission(event.target.repo, event.actorLogin)
   const isFork = await actorResolver.isFork(event.target)
   const trust = resolveTrust({ isFork, permission, intent, allowWrite: deps.allowWrite })
   return {
-    requestId: requestId(event.deliveryId),
-    event,
-    intent,
-    trust,
-    capabilities: capabilitiesFor(trust),
+    request: {
+      requestId: requestId(event.deliveryId),
+      event,
+      intent,
+      trust,
+      capabilities: capabilitiesFor(trust),
+    },
+    actor: { isFork, permission, intent },
   }
 }
 
@@ -500,7 +536,12 @@ export interface PublishResult {
   readonly failed: number
 }
 
-/** Builds the human summary comment, including findings degraded to summary. */
+/**
+ * Builds the human summary comment. `findings` are the anchored findings that
+ * were published inline; `degraded` are the unanchored findings the provider
+ * could not place, listed once as "(summary only)". The two lists must be
+ * disjoint — the caller (`publish`) splits `visible` on `anchor.anchored`.
+ */
 export function buildSummary(
   findings: readonly Finding[], stats: PublishStats, degraded: readonly Finding[],
 ): string {
@@ -509,10 +550,7 @@ export function buildSummary(
     lines.push('No findings.')
   } else {
     for (const finding of findings) {
-      const where = finding.anchor.anchored
-        ? ` (${finding.anchor.path}:${finding.anchor.line})`
-        : ` (${finding.anchor.path} — ${finding.anchor.fallbackReason ?? 'unanchored'})`
-      lines.push(`- **${finding.severity}**: ${finding.title}${where}`)
+      lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line})`)
     }
     for (const finding of degraded) {
       lines.push(`- **${finding.severity}** (summary only): ${finding.title} — ${finding.anchor.fallbackReason ?? 'could not be anchored'}`)
@@ -542,7 +580,8 @@ export async function publish(
   const bot = await actorResolver.botIdentity()
   const stats = await sink.createInlineComments(target, visible, bot.id)
   const degraded = visible.filter((finding) => !finding.anchor.anchored)
-  const summary = buildSummary(visible, stats, degraded)
+  const anchored = visible.filter((finding) => finding.anchor.anchored)
+  const summary = buildSummary(anchored, stats, degraded)
   const commentId = await sink.createComment(target, summary)
   return { commentId, summary, ...stats }
 }
@@ -651,10 +690,18 @@ export async function runReview(
   timer.unref?.()
 
   let phase: Phase = 'ingest'
+  // Identity threaded out of the try scope so a mid-pipeline failure (denied,
+  // timeout, publish error) still yields a complete terminal result naming the
+  // request, intent, forge, and resolved trust — not an `unknown` stub.
+  let event: NormalizedEvent | undefined
+  let intent: ReviewIntent | undefined
+  let request: ReviewRequest | undefined
+  let deactivateTrust: (() => void) | undefined
+
   try {
-    const event = await ingest(raw, deps)
+    event = await ingest(raw, deps)
     phase = 'route'
-    const intent = route(event)
+    intent = route(event)
 
     if (intent === 'none') {
       return report({
@@ -671,7 +718,23 @@ export async function runReview(
     }
 
     phase = 'authorize'
-    const request = await authorize(event, intent, deps)
+    const authorized = await authorize(event, intent, deps)
+    request = authorized.request
+
+    // Denied intents must never reach context/reason/publish: the resolved trust
+    // has to meet the intent's documented minimum (docs/03 routing table).
+    if (!meetsTrust(request.trust, INTENT_MIN_TRUST[intent])) {
+      throw new ReviewError(
+        'E_DENIED',
+        'authorize',
+        explainDenial({ ...authorized.actor, allowWrite: deps.allowWrite }),
+        false,
+      )
+    }
+
+    // Bind the trust decision for this run so the agent's visible tool set and
+    // the tools/pre-execute waterfall gate on the resolved level, not `none`.
+    deactivateTrust = deps.trustPolicy.activate(authorized.actor)
 
     phase = 'context'
     const diffSource = deps.forges.require<DiffSource>(event.forgeId, ['diff-source'])
@@ -722,8 +785,19 @@ export async function runReview(
           retryable: true,
         }
       : toFailure(error, phase)
-    return report({}, failure)
+    return report({
+      ...(event === undefined ? {} : { requestId: requestId(event.deliveryId), forgeId: event.forgeId }),
+      ...(intent === undefined ? {} : { operation: intent }),
+      ...(request === undefined ? {} : { trust: request.trust, capabilities: request.capabilities }),
+      verdict: {
+        status: 'failed',
+        findingsCount: 0,
+        blockersCount: 0,
+        durationMs: deps.now() - startedAt,
+      },
+    }, failure)
   } finally {
+    deactivateTrust?.()
     clearTimeout(timer)
   }
 }
@@ -829,6 +903,7 @@ export function apply(ctx: Context, config: Config): void {
     matchRules: (path) => ctx.reviewRules.match(path),
     memory: [],
     packs: () => ctx.reviewRules.packs(),
+    trustPolicy: ctx.trustPolicy,
   }
   const deps: StageDeps = { ...base, runAgent: createRunAgent(ctx) }
 

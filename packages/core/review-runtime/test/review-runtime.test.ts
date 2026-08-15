@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestId, commentId, commitSha, forgeId, ruleId } from '@dshrb/review-core'
+import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
 import type {
   Failure, Finding, NormalizedEvent, RawProposal, ReviewIntent, ReviewResult, ReviewTarget,
 } from '@dshrb/review-core'
@@ -8,6 +8,8 @@ import type {
   ActorResolver, BotIdentity, CommentSink, DiffSource, ForgePermission, ForgeRegistry, PublishStats, UnifiedDiff,
 } from '@dshrb/forge'
 import type { Rule } from '@dshrb/rule-registry'
+import { createTrustPolicy } from '@dshrb/trust-policy'
+import type { TrustPolicy } from '@dshrb/trust-policy'
 import {
   assembleContext, authorize, buildSummary, ingest, report, route, runReview, shardDiff, validate,
 } from '../src/index.ts'
@@ -90,9 +92,14 @@ function depsFixture(over: Partial<StageDeps> = {}): StageDeps {
     shardBytes: 120_000,
     matchRules: () => [ruleFixture()],
     memory: [],
+    trustPolicy: trustPolicyFixture(),
     runAgent: async () => [],
     ...over,
   }
+}
+
+function trustPolicyFixture(): TrustPolicy {
+  return createTrustPolicy({ allowWrite: false, protectedPaths: [] })
 }
 
 function configFixture(over: Partial<Config> = {}): Config {
@@ -262,6 +269,14 @@ describe('ingest', () => {
   it('rejects a missing deliveryId', async () => {
     await expect(ingest({ pull_request: {} }, depsFixture())).rejects.toThrow(/deliveryId/)
   })
+
+  it('rejects a PR payload missing base/head shas as an invalid payload, not E_UNEXPECTED', async () => {
+    await expect(ingest({
+      deliveryId: 'evt-1',
+      repository: { full_name: 'acme/widgets' },
+      pull_request: { number: 42 },
+    }, depsFixture())).rejects.toThrow(/pull_request\.base\.sha/)
+  })
 })
 
 // --- authorize --------------------------------------------------------------
@@ -269,7 +284,7 @@ describe('ingest', () => {
 describe('authorize', () => {
   it('resolves a collaborator review to trusted-read', async () => {
     const event = await ingest(prPayload(), depsFixture())
-    const request = await authorize(event, 'review', depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
     expect(request.trust).toBe('trusted-read')
     expect(request.capabilities.readRepoFiles).toBe(true)
     expect(request.capabilities.commitPatches).toBe(false)
@@ -277,13 +292,13 @@ describe('authorize', () => {
 
   it('denies a fix intent while allowWrite is off', async () => {
     const event = await ingest(prPayload(), depsFixture())
-    const request = await authorize(event, 'fix', depsFixture({ allowWrite: false }))
+    const { request } = await authorize(event, 'fix', depsFixture({ allowWrite: false }))
     expect(request.trust).toBe('none')
   })
 
   it('grants trusted-write for a fix intent when allowWrite is on', async () => {
     const event = await ingest(prPayload(), depsFixture())
-    const request = await authorize(event, 'fix', depsFixture({ allowWrite: true }))
+    const { request } = await authorize(event, 'fix', depsFixture({ allowWrite: true }))
     expect(request.trust).toBe('trusted-write')
     expect(request.capabilities.commitPatches).toBe(true)
   })
@@ -317,7 +332,7 @@ describe('shardDiff', () => {
 describe('assembleContext', () => {
   it('collects rules matching touched paths', async () => {
     const event = await ingest(prPayload(), depsFixture())
-    const request = await authorize(event, 'review', depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
     const bounded = assembleContext(request, diffFixture(), depsFixture())
     expect(bounded.rules.map((rule) => rule.id)).toEqual([ruleId('correctness/eq')])
     expect(bounded.shards.length).toBeGreaterThan(0)
@@ -376,11 +391,18 @@ describe('validate', () => {
 // --- buildSummary -----------------------------------------------------------
 
 describe('buildSummary', () => {
-  it('includes degraded findings so nothing vanishes', () => {
-    const anchor = validate([validProposal()], diffFixture(), []).findings[0] as Finding
-    const text = buildSummary([anchor], { published: 1, degradedToSummary: 1, failed: 0 }, [anchor])
-    expect(text).toContain('summary only')
-    expect(text).toContain(anchor.title)
+  it('lists anchored findings inline and degraded findings once as summary-only', () => {
+    const anchored = validate([validProposal({ title: 'anchored finding' })], diffFixture(), []).findings[0] as Finding
+    const degraded = validate(
+      [validProposal({ title: 'degraded finding', path: 'src/ghost.ts' })], diffFixture(), [],
+    ).findings[0] as Finding
+    const text = buildSummary([anchored], { published: 1, degradedToSummary: 1, failed: 0 }, [degraded])
+    expect(text).toContain('anchored finding')
+    expect(text).toContain('degraded finding')
+    // The degraded finding appears exactly once, as "(summary only)".
+    expect(text.match(/summary only/g)).toHaveLength(1)
+    // The anchored finding is never listed as a degraded entry.
+    expect(text).not.toContain('anchored finding —')
   })
 
   it('says no findings when empty', () => {
@@ -441,6 +463,11 @@ describe('runReview', () => {
     expect(complete.verdict.durationMs).toBeGreaterThanOrEqual(0)
     expect(complete.findings).toEqual([])
     expect(complete.discarded).toEqual([])
+    // Mid-pipeline failure still names the request, intent, forge, and trust.
+    expect(complete.requestId).toBe(requestId('evt-1'))
+    expect(complete.operation).toBe('review')
+    expect(complete.forgeId).toBe(GITHUB)
+    expect(complete.trust).toBe('trusted-read')
   })
 
   it('surfaces a publish-side failure without throwing', async () => {
@@ -453,5 +480,50 @@ describe('runReview', () => {
     const result = await runReview(prPayload(), deps, configFixture())
     expect(result.verdict.status).toBe('failed')
     expect(result.failure?.phase).toBe('publish')
+    expect(result.requestId).toBe(requestId('evt-1'))
+    expect(result.operation).toBe('review')
+    expect(result.trust).toBe('trusted-read')
+  })
+
+  it('denies an intent whose trust is below the minimum and never publishes (gate denied)', async () => {
+    let reasoned = false
+    let commented = false
+    const deps = depsFixture({
+      allowWrite: false,
+      forges: gatewayFixture({
+        createComment: async () => {
+          commented = true
+          return commentId('c-x')
+        },
+      }),
+      runAgent: async () => {
+        reasoned = true
+        return []
+      },
+    })
+    const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
+    expect(result.verdict.status).toBe('denied')
+    expect(result.failure?.code).toBe('E_DENIED')
+    expect(result.operation).toBe('fix')
+    expect(result.trust).toBe('none')
+    expect(reasoned).toBe(false)
+    expect(commented).toBe(false)
+  })
+
+  it('activates the trust decision for the run and restores it afterwards', async () => {
+    const policy = createTrustPolicy({ allowWrite: false, protectedPaths: [] })
+    let levelDuringReason: string | undefined
+    const deps = depsFixture({
+      trustPolicy: policy,
+      runAgent: async () => {
+        levelDuringReason = policy.level
+        return []
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(levelDuringReason).toBe('trusted-read')
+    // The disposer returned by activate() restores the pre-run decision.
+    expect(policy.level).toBe('none')
   })
 })
