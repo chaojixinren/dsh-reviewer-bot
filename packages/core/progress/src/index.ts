@@ -41,9 +41,11 @@ export const Config: Schema<Config> = Schema.object({
   throttleMs: Schema.number().default(5000),
 })
 
-export declare function createProgressReporter(
-  sink: CommentSink, botId: string, config: Config,
-): ProgressReporter
+export function createProgressReporter(
+  _sink: CommentSink, _botId: string, _config: Config,
+): ProgressReporter {
+  throw new Error('not implemented: createProgressReporter (M1)')
+}
 
 export function apply(_ctx: Context, _config: Config): void {
   // TODO(M1): ctx.on('session/event') → map assistant/chunk and turn

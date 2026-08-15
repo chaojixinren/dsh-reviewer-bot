@@ -51,12 +51,18 @@ export interface TrustInput {
  * repository configuration. Otherwise anyone could shout "fix" in a PR and
  * mutate the branch.
  */
-export declare function resolveTrust(input: TrustInput): TrustLevel
+export function resolveTrust(_input: TrustInput): TrustLevel {
+  throw new Error('not implemented: resolveTrust (M1)')
+}
 
-export declare function capabilitiesFor(trust: TrustLevel): Capabilities
+export function capabilitiesFor(_trust: TrustLevel): Capabilities {
+  throw new Error('not implemented: capabilitiesFor (M1)')
+}
 
 /** Explains a `none` outcome in terms of the specific missing condition. */
-export declare function explainDenial(input: TrustInput): string
+export function explainDenial(_input: TrustInput): string {
+  throw new Error('not implemented: explainDenial (M1)')
+}
 
 export function apply(_ctx: Context, _config: Config): void {
   // TODO(M1): ctx.on('tools/pre-execute') → allow / deny / ask by capability.
