@@ -23,6 +23,7 @@ flowchart LR
         m2a["rule-registry<br/>4d"]
         m2b["rules-baseline<br/>6d"]
         m2c["driver-cli 与 replay<br/>6d"]
+        m2d["forge-local<br/>4d"]
     end
     subgraph M3["M3 写模式"]
         m3a["sandbox 隔离<br/>5d"]
@@ -42,10 +43,13 @@ flowchart LR
     m1a --> m1c
     m1b --> m1f
     m2a --> m2b
+    m2d --> m2c
     m3a --> m3b
     m3d --> m4b
     m4c --> m4e
 ```
+
+关键路径上的 `m1g ==> m2a` 是排期顺序（M2 排在 M1 之后启动），不是技术依赖：`rule-registry` 技术上只依赖 `review-core`。
 
 | 里程碑 | 任务 | 工期 | 依赖 | 关键路径 |
 | --- | --- | --- | --- | --- |
@@ -58,9 +62,10 @@ flowchart LR
 | M1 | validator 锚定器 | 5d | tool-review | ✅ |
 | M1 | progress sticky 上报 | 3d | forge + github | |
 | M1 | driver-action | 4d | validator | ✅ |
-| M2 | rule-registry | 4d | driver-action | ✅ |
+| M2 | rule-registry | 4d | review-core | ✅ |
 | M2 | rules-baseline | 6d | rule-registry | |
-| M2 | driver-cli + replay | 6d | rule-registry | ✅ |
+| M2 | forge-local | 4d | forge 接口 | |
+| M2 | driver-cli + replay | 6d | rule-registry + forge-local | ✅ |
 | M3 | sandbox 隔离 | 5d | driver-cli + replay | ✅ |
 | M3 | guard 硬红线 | 3d | sandbox 隔离 | |
 | M3 | 校验命令执行 | 4d | sandbox 隔离 | ✅ |
@@ -151,8 +156,8 @@ flowchart LR
 
 ## 当前状态
 
-M0 已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）均已就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）。
+M0 与 M1 均已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）；只读评审闭环全部合入 `main`（PR #13–#19）。
 
-已实现：`review-core` 领域类型（41 例单测）、`forge` 接口 + 注册表 + `AnchorResolver`（14 例单测）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁（55 例单测）、`forge-github` provider（56 例单测）、`tool-review` 只读工具（17 例单测）、`review-runtime` 的 `validate` 校验链（归一化 → hunk 锚定 → schema 收窄 → 体积上限 → 去重，12 例单测）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名（9/9）。共 7 个测试文件、195 例单测。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver`、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `publish` / `report`，仅 `mutate` 留到 M3）、`progress` sticky 上报、`driver-action`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 10 个测试文件、264 例单测全绿。
 
-未实现（刻意）：`review-runtime` 除 `validate` 外的管线阶段（ingest / route / authorize / assembleContext / reason / publish / mutate / report / runReview）与 `apply()` 仍抛 `not implemented`；`progress`、`rule-registry`、`rules-baseline`、`driver-action`、`driver-cli`、`driver-webhook`、`forge-gitlab` 同样未实现。25 处 TODO（M1:3 / M2:8 / M3:2 / M4:12）。下一步继续 M1 只读评审闭环：progress sticky 上报 → driver-action。
+未实现（刻意）：M2 的 `rule-registry`（`reviewRules` 服务注册）、`rules-baseline`（基线规则包注册）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）、`forge-local` 仍为脚手架占位；M3 的 `mutate` 阶段与 `propose_patch`、M4 的 `forge-gitlab` / `driver-webhook` 同样未实现。下一步进入 M2：`rule-registry`（#22）→ `rules-baseline`（#23）/ `driver-cli`（#25），`forge-local`（#24）与之并行。
