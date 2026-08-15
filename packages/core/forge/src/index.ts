@@ -6,6 +6,7 @@
  * startup, so a missing capability degrades explicitly instead of failing
  * halfway through a run. See docs/06-forge-abstraction.md.
  */
+import { createHash } from 'node:crypto'
 import type {
   Anchor, ChangeRequestId, CommentId, CommitSha, Finding, ForgeId, Patch, ReviewTarget,
 } from '@dshrb/review-core'
@@ -62,13 +63,24 @@ export interface ForgeGateway {
 
 export interface DiffSource extends ForgeGateway {
   fetchDiff(target: ReviewTarget): Promise<UnifiedDiff>
-  fetchFile(path: string, sha: CommitSha): Promise<string>
+  /**
+   * `repo` is explicit because no forge can route a blob read without it, and
+   * `CommitSha` does not carry one. It also matches `CheckReader`, which took a
+   * `repo` from the start.
+   */
+  fetchFile(repo: string, path: string, sha: CommitSha): Promise<string>
 }
 
 export interface CommentSink extends ForgeGateway {
   createComment(target: ReviewTarget, body: string): Promise<CommentId>
-  updateComment(id: CommentId, body: string): Promise<void>
-  createInlineComments(target: ReviewTarget, findings: readonly Finding[]): Promise<PublishStats>
+  /** `repo` for the same reason as `DiffSource.fetchFile`: a `CommentId` alone is not routable. */
+  updateComment(repo: string, id: CommentId, body: string): Promise<void>
+  /**
+   * `botId` is required so only the bot's own comments contribute idempotency
+   * keys: a marker written by anyone else is forgeable and must not suppress a
+   * finding.
+   */
+  createInlineComments(target: ReviewTarget, findings: readonly Finding[], botId: string): Promise<PublishStats>
   /**
    * Returns a sticky comment only when it was authored by `botId` AND carries
    * our own first-line marker. A forged marker must be ignored, never updated.
@@ -121,6 +133,36 @@ export interface ForgeRegistry {
  */
 export interface AnchorResolver {
   resolve(diff: UnifiedDiff, path: string, line: number): Anchor
+}
+
+/**
+ * Per-finding publish idempotency key: `hash(path + anchor + ruleId)`, per
+ * docs/06-forge-abstraction.md. A retry after a `publish_partial` failure
+ * recomputes the same key for an already-published finding, so the provider can
+ * skip it instead of posting a duplicate comment.
+ *
+ * This is deliberately NOT `findingDedupeKey` from review-core. That one merges
+ * the same problem reported from two diff shards, so it folds in the title and
+ * ignores `side`/`anchored`. This one identifies a published comment's location,
+ * so it must include the full anchor and must NOT include the title: a reworded
+ * body on retry has to update the same comment, not create a second one.
+ *
+ * Lives here rather than in the GitHub provider because every provider needs
+ * byte-identical behavior to pass the shared conformance suite (docs/06).
+ *
+ * Fields are JSON-encoded before hashing so that a `ruleId` containing the
+ * delimiter cannot shift field boundaries and forge a collision.
+ */
+export function publishIdempotencyKey(finding: Finding): string {
+  const { anchor } = finding
+  const encoded = JSON.stringify([
+    anchor.path,
+    anchor.line,
+    anchor.side,
+    anchor.anchored,
+    finding.ruleId ?? '',
+  ])
+  return createHash('sha256').update(encoded, 'utf8').digest('hex')
 }
 
 export function createForgeRegistry(): ForgeRegistry {
