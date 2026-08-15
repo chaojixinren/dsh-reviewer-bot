@@ -907,6 +907,41 @@ describe('runReview', () => {
     expect(result.summary).toBeTruthy()
   })
 
+  it('reports failed when the write-mode validation gate blocks the commit', async () => {
+    const deps = depsFixture({
+      allowWrite: true,
+      trustPolicy: createTrustPolicy({ allowWrite: true, protectedPaths: [] }),
+      fs: writeFsFixture({
+        lstat: async (path) => (path === 'src/a.ts' ? { version: undefined, type: 'file' } as unknown as FsPathInfo : undefined),
+        readText: async () => 'a\n',
+        writeText: async (_target, content) => ({ operation: 'update', version: undefined, before: 'a\n', after: content }) as unknown as FsWriteOutcome,
+      }),
+      sandboxPolicy: () => WORKSPACE_POLICY,
+      confine: (argv) => confinedFixture({ argv: ['runner', ...argv] }),
+      runConfinedCommand: async () => ({ exitCode: 1, stdout: 'fail', stderr: 'boom' }),
+      validation: {
+        commands: [['pnpm', 'lint']],
+        envAllowlist: ['PATH'],
+        hostEnv: () => ({ PATH: '/usr/bin' }),
+      },
+      runAgent: async () => ({
+        proposals: [validProposal()],
+        patches: [{ path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+A\n' }],
+      }),
+    })
+    const result = await runReview(commentPayload('@dsr fix'), deps, configFixture())
+    // The gate blocked the commit: the run must not report success (the Action
+    // `conclusion` would then show a green check for a fix that never landed).
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.code).toBe('E_VALIDATION_FAILED')
+    expect(result.failure?.phase).toBe('mutate')
+    expect(result.write?.validation.passed).toBe(false)
+    expect(result.write?.commitSha).toBeUndefined()
+    // Findings already reached the forge; a blocked write must not erase them.
+    expect(result.findings).toHaveLength(1)
+    expect(result.publication?.published).toBe(1)
+  })
+
   it('denies an intent whose trust is below the minimum and never publishes (gate denied)', async () => {
     let reasoned = false
     let commented = false

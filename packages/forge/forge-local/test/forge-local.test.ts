@@ -171,6 +171,29 @@ describe('mutation sink', () => {
       .rejects.toThrow(/invalid branch name/)
   })
 
+  it('surfaces a checkout failure instead of masking it with checkout -b', async () => {
+    const calls: string[][] = []
+    const gateway = createLocalGateway(config(), {
+      ...stubDeps(),
+      git: async (args) => {
+        calls.push([...args])
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return 'refs/heads/fix'
+        }
+        if (args[0] === 'checkout') {
+          throw new Error('local changes would be overwritten')
+        }
+        return ''
+      },
+    })
+    await expect(gateway.commitPatches('local', 'fix/1', [
+      { path: 'src/a.ts', diff: '@@ -1,1 +1,1 @@\n-a\n+b' },
+    ], 'msg')).rejects.toThrow(/local changes would be overwritten/)
+    // The branch already exists, so the create path must never run: a failed
+    // checkout is a checkout error, not a signal that the branch is absent.
+    expect(calls.filter((call) => call[0] === 'checkout' && call[1] === '-b')).toHaveLength(0)
+  })
+
   it('openPullRequest returns a local branch reference and prints it', async () => {
     const deps = stubDeps()
     const gateway = createLocalGateway(config(), deps)

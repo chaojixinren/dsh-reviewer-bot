@@ -152,12 +152,20 @@ function assertSafeBranch(branch: string): string {
 /** Checks out (creating when absent) the write branch for a mutation. */
 async function ensureBranch(git: GitRunner, branch: string): Promise<void> {
   const safeBranch = assertSafeBranch(branch)
+  // The existence probe and the checkout are deliberately NOT wrapped in one
+  // try/catch. If the branch exists but `checkout` fails (dirty-tree conflict,
+  // permission error), that failure must propagate — folding it into a
+  // `checkout -b` would mask the real error behind a "branch already exists"
+  // failure from the create path.
+  let exists = false
   try {
     await git(['rev-parse', '--verify', safeBranch])
-    await git(['checkout', safeBranch])
+    exists = true
   } catch {
-    await git(['checkout', '-b', safeBranch])
+    // The ref does not exist (rev-parse reports a non-zero exit), so create it.
+    exists = false
   }
+  await git(exists ? ['checkout', safeBranch] : ['checkout', '-b', safeBranch])
 }
 
 // ---------------------------------------------------------------------------

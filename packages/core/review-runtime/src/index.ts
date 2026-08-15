@@ -1665,6 +1665,23 @@ export async function runReview(
       isolation = isolationProfile(deps)
     }
 
+    // A failed write-mode validation gate blocks the commit (docs/03 state
+    // machine: Mutating → ValidationFailedW). The fix did not land, so the run
+    // must not report success — the Action `conclusion` would then show a green
+    // check for a blocked fix. The findings are already published; only the
+    // verdict and the attached failure reflect the blocked write.
+    const validationBlocked = write !== undefined && write.validation.ran && !write.validation.passed
+    const validationFailure: Failure | undefined = validationBlocked
+      ? {
+          code: 'E_VALIDATION_FAILED',
+          phase: 'mutate',
+          title: 'write-mode validation failed',
+          message: 'the configured validation commands did not pass, so nothing was committed',
+          guidance: 'fix the failing checks and re-run @dsr fix',
+          retryable: false,
+        }
+      : undefined
+
     phase = 'report'
     return report({
       requestId: request.requestId,
@@ -1684,7 +1701,7 @@ export async function runReview(
       ...(write === undefined ? {} : { write }),
       ...(isolation === undefined ? {} : { isolation }),
       verdict: {
-        status: 'success',
+        status: validationBlocked ? 'failed' : 'success',
         findingsCount: validated.findings.length,
         blockersCount: countBlockers(validated.findings),
         durationMs: deps.now() - startedAt,
@@ -1692,7 +1709,7 @@ export async function runReview(
       ...(published.commentId === undefined ? {} : { stickyCommentId: published.commentId }),
       ...(replayId === undefined ? {} : { replayId }),
       ...(snapshotError === undefined ? {} : { snapshotError }),
-    })
+    }, validationFailure)
   } catch (error) {
     const failure: Failure = timedOut
       ? {
