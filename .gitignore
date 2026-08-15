@@ -12,3 +12,9 @@ dist/
 
 .omc/
 .DS_Store
+
+# Throwaway dir for probing upstream type definitions.
+.probe/
+
+# Local git worktrees used for feature development.
+.worktrees/
