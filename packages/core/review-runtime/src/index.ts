@@ -1133,6 +1133,15 @@ export async function mutate(
     if (!appliedPatch.ok) {
       throw new ReviewError('E_WRITE_REJECTED', 'mutate', `patch for '${excerpt(patch.path)}' does not apply: ${appliedPatch.reason}`, false)
     }
+    // The monotonic write red lines are re-checked here, against the file's
+    // actual before/after content, not only at `propose_patch` time. The
+    // tool-call guard fires before the session event that records the patch, so
+    // a guard denial alone cannot remove the proposal; this authoritative check
+    // is what stops a red-lined patch from ever landing on disk.
+    const redLine = deps.trustPolicy.rejectWrite(patch.path, patch.diff, before, appliedPatch.content)
+    if (redLine !== undefined) {
+      throw new ReviewError('E_WRITE_REJECTED', 'mutate', redLine, false)
+    }
     plan.push({ patch, target, content: appliedPatch.content })
   }
 
@@ -1561,6 +1570,7 @@ export async function runReview(
   let intent: ReviewIntent | undefined
   let request: ReviewRequest | undefined
   let deactivateTrust: (() => void) | undefined
+  let unbindWriteContext: (() => void) | undefined
   let replayId: string | undefined
   let snapshotError: string | undefined
   // Hoisted so a mutate-stage failure that follows a successful publish can
@@ -1611,6 +1621,13 @@ export async function runReview(
     phase = 'context'
     const diffSource = deps.forges.require<DiffSource>(event.forgeId, ['diff-source'])
     const diff = await diffSource.fetchDiff(event.target)
+    // Feed the write guard the change-set facts it needs for lockfile↔manifest
+    // pairing and binary detection, before the agent (and any `propose_patch`
+    // call) runs. The guard is pure and reads only these bound facts.
+    unbindWriteContext = deps.trustPolicy.bindWriteContext({
+      changedPaths: diff.files.map((file) => file.path),
+      binaryPaths: diff.files.filter((file) => file.binary).map((file) => file.path),
+    })
     // `diagnose` shares the review pipeline (reason → validate → publish) but
     // assembles its context from the failed CI checks instead of only the diff:
     // the agent reads each check log through `read_check_log` and proposes
@@ -1752,6 +1769,7 @@ export async function runReview(
     }, failure)
   } finally {
     deactivateTrust?.()
+    unbindWriteContext?.()
     clearTimeout(timer)
   }
 }

@@ -19,6 +19,7 @@ import {
   isAnchored,
   isSafeRelativePath,
   isSeverity,
+  matchesGlob,
   meetsSeverityThreshold,
   narrowPatchProposal,
   narrowProposal,
@@ -157,6 +158,30 @@ describe('anchors', () => {
     expect(isSafeRelativePath('')).toBe(false)
     // A filename that merely contains dots is fine; only a `..` segment is not.
     expect(isSafeRelativePath('src/..a.ts')).toBe(true)
+  })
+})
+
+describe('matchesGlob', () => {
+  it('matches literal segments exactly', () => {
+    expect(matchesGlob('Jenkinsfile', 'Jenkinsfile')).toBe(true)
+    expect(matchesGlob('Jenkinsfile', 'src/Jenkinsfile')).toBe(false)
+  })
+
+  it('matches a trailing ** across any number of segments', () => {
+    expect(matchesGlob('.github/**', '.github/workflows/ci.yml')).toBe(true)
+    expect(matchesGlob('.github/**', '.github')).toBe(true)
+    expect(matchesGlob('.github/**', 'src/.github/x')).toBe(false)
+  })
+
+  it('matches * within one segment only', () => {
+    expect(matchesGlob('*.yml', '.gitlab-ci.yml')).toBe(true)
+    expect(matchesGlob('src/*.ts', 'src/index.ts')).toBe(true)
+    expect(matchesGlob('src/*.ts', 'src/nested/index.ts')).toBe(false)
+  })
+
+  it('matches a ** in the middle across zero or more segments', () => {
+    expect(matchesGlob('src/**/generated/**', 'src/generated/x.ts')).toBe(true)
+    expect(matchesGlob('src/**/generated/**', 'src/a/b/generated')).toBe(true)
   })
 })
 

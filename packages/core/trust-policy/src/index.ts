@@ -11,10 +11,10 @@
  * See docs/04-trust-model.md.
  */
 import type { Capabilities, ReviewIntent, TrustLevel } from '@dshrb/review-core'
-import { NO_CAPABILITIES, capabilities } from '@dshrb/review-core'
+import { NO_CAPABILITIES, capabilities, isSafeRelativePath, matchesGlob } from '@dshrb/review-core'
 import type { ForgePermission } from '@dshrb/forge'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PreToolDecision, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'dshrb-trust-policy'
@@ -255,6 +255,194 @@ export function decideToolCall(input: TrustInput, toolName: string): PreToolDeci
 }
 
 // ---------------------------------------------------------------------------
+// Write red lines (monotonic guard)
+// ---------------------------------------------------------------------------
+
+/**
+ * Change-set facts the monotonic write guard reads. Bound per run by the
+ * controller once it has fetched the diff; the guard itself never touches the
+ * filesystem, which is what keeps it a pure, table-testable function.
+ */
+export interface WriteGuardContext {
+  /** Every repo-relative path touched by this change request. */
+  readonly changedPaths: readonly string[]
+  /** Paths the forge diff flagged as binary (no hunk text; must not be written). */
+  readonly binaryPaths: readonly string[]
+}
+
+/** One candidate write the guard evaluates. */
+export interface WriteRedLine extends WriteGuardContext {
+  /** Repo-relative path the write targets. */
+  readonly path: string
+  /** The unified diff text for that path (for the field-level `package.json` check). */
+  readonly diff: string
+}
+
+/** Lockfile basenames whose write is gated on a matching `package.json` change. */
+const LOCKFILE_NAMES: ReadonlySet<string> = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+])
+
+function basename(path: string): string {
+  const segments = path.split('/')
+  return segments[segments.length - 1] ?? path
+}
+
+function dirname(path: string): string {
+  const index = path.lastIndexOf('/')
+  return index === -1 ? '' : path.slice(0, index)
+}
+
+/** True when `path` is a `package.json` manifest at any depth. */
+function isManifest(path: string): boolean {
+  return basename(path) === 'package.json'
+}
+
+/**
+ * The `package.json` a lockfile must ship alongside, or `undefined` when `path`
+ * is not a known lockfile. The pairing is same-directory: `packages/x/yarn.lock`
+ * requires `packages/x/package.json` to change in the same request.
+ */
+function manifestForLockfile(path: string): string | undefined {
+  if (!LOCKFILE_NAMES.has(basename(path))) return undefined
+  const dir = dirname(path)
+  return dir === '' ? 'package.json' : `${dir}/package.json`
+}
+
+/**
+ * True when a `package.json` unified diff touches the `scripts` object.
+ *
+ * Field-level, not whole-file: a change to `dependencies` does not trip this.
+ * The check is deliberately textual and conservative — any hunk whose body
+ * mentions the `"scripts"` key (as a context line around a script edit, or as a
+ * changed line adding/removing the field) is refused. A single hunk that spans
+ * both `scripts` and another field is over-denied, which is the safe direction
+ * for a permanent red line.
+ */
+function diffTouchesScripts(diff: string): boolean {
+  return /"scripts"\s*:/u.test(diff)
+}
+
+/**
+ * Parses a manifest's `scripts` field for the authoritative red line. An empty
+ * string is a newly-created manifest and has no `scripts`; a non-empty manifest
+ * that fails to parse returns `undefined`, which the caller treats as a
+ * fail-closed signal rather than "assume safe".
+ */
+function parsedScripts(content: string): { scripts: unknown } | undefined {
+  if (content.trim() === '') return { scripts: undefined }
+  try {
+    return { scripts: (JSON.parse(content) as Record<string, unknown>).scripts }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Authoritative `package.json` `scripts` red line, evaluated where the file's
+ * before/after content is available (the mutate stage). A structural compare of
+ * the parsed `scripts` field catches an edit to a script VALUE whose diff hunk
+ * context never reaches the `"scripts"` key — the exact case the text-only
+ * guard cannot see. Fails closed: a manifest that cannot be parsed counts as a
+ * change, so an unreadable package.json is refused rather than assumed safe.
+ */
+export function scriptsFieldChanged(before: string, after: string): boolean {
+  const beforeScripts = parsedScripts(before)
+  const afterScripts = parsedScripts(after)
+  if (beforeScripts === undefined || afterScripts === undefined) return true
+  return JSON.stringify(beforeScripts.scripts) !== JSON.stringify(afterScripts.scripts)
+}
+
+/**
+ * Normalizes a write path before red-line checks: trims whitespace and strips a
+ * leading `./`, so `./.github/x` and ` .github/x` resolve to the same protected
+ * target the filesystem will write, instead of missing the `.github/**` glob.
+ */
+function normalizeWritePath(path: string): string {
+  let normalized = path.trim()
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2)
+  }
+  return normalized
+}
+
+/** Caps untrusted text before it lands in a denial reason. */
+function excerpt(value: string): string {
+  return value.length > 80 ? `${value.slice(0, 80)}…` : value
+}
+
+/**
+ * The monotonic write red lines (docs/03-review-pipeline.md). Returns a denial
+ * reason or `undefined` to abstain. Pure: no filesystem, no symlink resolution
+ * — a symlink is the sandbox layer's concern (#33), not this guard's. Each red
+ * line is checked once, and a denial is final by construction: a guard has no
+ * `allow` result, so a later listener cannot turn it back into permission.
+ */
+export function writeRedLineViolation(write: WriteRedLine, protectedPaths: readonly string[]): string | undefined {
+  // Normalize once, up front, so every red line (and the denial message) agrees
+  // with the path the filesystem will actually write. `./` and stray whitespace
+  // must not let a protected path dodge its glob.
+  const path = normalizeWritePath(write.path)
+  if (!isSafeRelativePath(path)) {
+    return `path '${excerpt(path)}' is not a safe repo-relative path (absolute, drive, '..', or NUL)`
+  }
+  const protectedPattern = protectedPaths.find((pattern) => matchesGlob(pattern, path))
+  if (protectedPattern !== undefined) {
+    return `path '${excerpt(path)}' is protected by '${protectedPattern}'`
+  }
+  if (write.binaryPaths.includes(path)) {
+    return `path '${excerpt(path)}' is a binary file`
+  }
+  if (isManifest(path) && diffTouchesScripts(write.diff)) {
+    return `path '${excerpt(path)}' would modify the package.json 'scripts' field, a permanent red line`
+  }
+  const manifest = manifestForLockfile(path)
+  if (manifest !== undefined && !write.changedPaths.includes(manifest)) {
+    return `lockfile '${excerpt(path)}' requires a matching change to '${manifest}' in the same request`
+  }
+  return undefined
+}
+
+/** Extracts the `{ path, diff }` patch from a write tool's parsed arguments. */
+function patchArguments(arguments_: unknown): { path: string; diff: string } | undefined {
+  if (typeof arguments_ !== 'object' || arguments_ === null) return undefined
+  const record = arguments_ as Record<string, unknown>
+  if (typeof record.path !== 'string' || typeof record.diff !== 'string') return undefined
+  return { path: record.path, diff: record.diff }
+}
+
+/**
+ * Adapts one tool execution to the pure red-line check. Only the write tool is
+ * governed (the one whose requirement is the `proposePatches` capability);
+ * every other tool abstains so unrelated plugins keep their say.
+ */
+function writeGuardDenial(
+  execution: Readonly<ToolExecution>,
+  policy: TrustPolicy,
+  protectedPaths: readonly string[],
+): string | undefined {
+  if (TOOL_REQUIREMENTS[execution.name] !== 'proposePatches') return undefined
+
+  const patch = patchArguments(execution.arguments)
+  if (patch === undefined) {
+    return `${execution.name} denied — a write call must carry string 'path' and 'diff' arguments`
+  }
+
+  const context = policy.writeContext
+  if (context === undefined) {
+    return `${execution.name} denied — no write-guard context is bound for this run`
+  }
+
+  return writeRedLineViolation(
+    { path: patch.path, diff: patch.diff, changedPaths: context.changedPaths, binaryPaths: context.binaryPaths },
+    protectedPaths,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
@@ -286,12 +474,33 @@ export interface TrustPolicy {
   restrictScope(scoped: Context): () => void
   /** The decision the waterfall would reach for one tool name. */
   decide(toolName: string): PreToolDecision | undefined
+  /** The bound change-set facts the write guard reads, or `undefined` before binding. */
+  readonly writeContext: WriteGuardContext | undefined
+  /**
+   * Bind the change-set facts (touched paths, binary paths) the write guard
+   * reads. The controller calls this once it has fetched the diff, before the
+   * agent runs; the guard reads it for lockfile↔manifest pairing and binary
+   * detection. @returns a disposer restoring the previous context.
+   */
+  bindWriteContext(context: WriteGuardContext): () => void
+  /**
+   * Authoritative write red-line check for the mutate stage, run after a patch
+   * has been applied to the file's current content. The tool-call guard fires
+   * before the session event that records the patch, so a guard denial does not
+   * by itself stop a proposal; this re-check is what actually prevents a
+   * red-lined patch from landing on disk. It additionally sees the file's
+   * before/after content, so it can detect a `package.json` `scripts` edit even
+   * when the diff hunk's context never reaches the `"scripts"` key. Returns a
+   * denial reason, or `undefined` to allow.
+   */
+  rejectWrite(path: string, diff: string, before: string, after: string): string | undefined
 }
 
 class TrustPolicyState implements TrustPolicy {
   #input: TrustInput | undefined
+  #writeContext: WriteGuardContext | undefined
 
-  constructor(private readonly allowWrite: boolean) {}
+  constructor(private readonly allowWrite: boolean, private readonly protectedPaths: readonly string[]) {}
 
   get input(): TrustInput | undefined {
     return this.#input
@@ -305,12 +514,42 @@ class TrustPolicyState implements TrustPolicy {
     return capabilitiesFor(this.level)
   }
 
+  get writeContext(): WriteGuardContext | undefined {
+    return this.#writeContext
+  }
+
   activate(actor: ActorContext): () => void {
     const previous = this.#input
     this.#input = { ...actor, allowWrite: this.allowWrite }
     return () => {
       this.#input = previous
     }
+  }
+
+  bindWriteContext(context: WriteGuardContext): () => void {
+    const previous = this.#writeContext
+    this.#writeContext = context
+    return () => {
+      this.#writeContext = previous
+    }
+  }
+
+  rejectWrite(path: string, diff: string, before: string, after: string): string | undefined {
+    const context = this.#writeContext
+    if (context === undefined) {
+      return 'write denied — no write-guard context is bound for this run'
+    }
+    const redLine = writeRedLineViolation(
+      { path, diff, changedPaths: context.changedPaths, binaryPaths: context.binaryPaths },
+      this.protectedPaths,
+    )
+    if (redLine !== undefined) return redLine
+    // The authoritative scripts red line: structural compare of before/after,
+    // which catches a script-value edit the text-only guard's diff check missed.
+    if (isManifest(path) && scriptsFieldChanged(before, after)) {
+      return `path '${excerpt(path)}' would modify the package.json 'scripts' field, a permanent red line`
+    }
+    return undefined
   }
 
   restrictScope(scoped: Context): () => void {
@@ -330,7 +569,7 @@ class TrustPolicyState implements TrustPolicy {
 }
 
 export function createTrustPolicy(config: Config): TrustPolicy {
-  return new TrustPolicyState(config.allowWrite)
+  return new TrustPolicyState(config.allowWrite, config.protectedPaths)
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -349,12 +588,13 @@ export function apply(ctx: Context, config: Config): void {
   // rather than the one under review. `review-runtime` calls
   // `ctx.trustPolicy.restrictScope(agent.ctx)` once the agent exists, on the
   // same resolved level the waterfall enforces.
-
-  // TODO(M3): ctx.tools.guard() for the monotonic red lines:
-  //           config.protectedPaths, package.json `scripts`, binaries, path
-  //           traversal, symlinks, and lockfiles without a matching manifest
-  //           change. Left whole rather than half-built: a guard that covers
-  //           some red lines reads as protection that is not there.
+  //
+  // A guard is different from a restriction: it can only DENY, never hide or
+  // force-allow, so registering it here (a plain-context, process-global guard)
+  // is correct — the red lines are absolute invariants that must hold for every
+  // agent, unlike the per-trust-level visibility `restrictScope` narrows. The
+  // write-tool call is the only one governed; every other tool abstains.
+  ctx.tools.guard((execution) => writeGuardDenial(execution, policy, config.protectedPaths))
 }
 
 declare module '@deepseek-ai/cordis' {

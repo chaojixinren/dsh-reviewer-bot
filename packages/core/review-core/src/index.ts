@@ -497,6 +497,105 @@ export function isSafeRelativePath(path: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Path glob matching
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal glob matcher for repo-relative `/`-separated paths. Single source of
+ * truth for both rule applicability (`@dshrb/rule-registry`) and the write
+ * guard's protected-path deny-list (`@dshrb/trust-policy`), so the two layers
+ * can never drift on semantics. Supported syntax:
+ *
+ * - `*`      any run of characters within one path segment (no `/`)
+ * - `**`     any run of path segments, including none
+ * - `?`      exactly one character within a segment (no `/`)
+ * - `[...]`  a character class; `[!...]` negates
+ *
+ * A backslash escapes the next character. Patterns are split on `/` and never
+ * anchored to a directory, so `src/**` also matches the (unlikely) file path
+ * `src` itself — harmless for both call sites, which only ever feed file paths.
+ */
+export function matchesGlob(pattern: string, path: string): boolean {
+  return matchSegments(pattern.split('/'), path.split('/'))
+}
+
+function matchSegments(pattern: readonly string[], path: readonly string[], pi = 0, si = 0): boolean {
+  while (pi < pattern.length) {
+    const segment = pattern[pi]
+    if (segment === undefined) {
+      return si === path.length
+    }
+    if (segment === '**') {
+      if (pi === pattern.length - 1) {
+        // A trailing `**` matches whatever remains, including nothing.
+        return true
+      }
+      // A `**` in the middle matches zero or more whole segments.
+      for (let skip = si; skip <= path.length; skip++) {
+        if (matchSegments(pattern, path, pi + 1, skip)) {
+          return true
+        }
+      }
+      return false
+    }
+    const value = path[si]
+    if (value === undefined || !matchesSegment(segment, value)) {
+      return false
+    }
+    pi++
+    si++
+  }
+  return si === path.length
+}
+
+function matchesSegment(pattern: string, value: string): boolean {
+  // Fast path: a segment with no metacharacters compares literally.
+  return hasMeta(pattern) ? segmentToRegExp(pattern).test(value) : pattern === value
+}
+
+function hasMeta(segment: string): boolean {
+  return /[*?[\\]/.test(segment)
+}
+
+function segmentToRegExp(segment: string): RegExp {
+  let source = ''
+  for (let i = 0; i < segment.length; i++) {
+    const char = segment[i]
+    if (char === undefined) break
+    if (char === '*') {
+      source += '[^/]*'
+    } else if (char === '?') {
+      source += '[^/]'
+    } else if (char === '[') {
+      const close = segment.indexOf(']', i + 1)
+      if (close === -1) {
+        // An unclosed class is a literal bracket.
+        source += '\\['
+      } else {
+        let body = segment.slice(i + 1, close)
+        if (body.startsWith('!')) {
+          body = `^${body.slice(1)}`
+        } else if (body.startsWith('^')) {
+          body = `\\${body}`
+        }
+        source += `[${body}]`
+        i = close
+      }
+    } else if (char === '\\' && i + 1 < segment.length) {
+      source += escapeRegExp(segment[i + 1] ?? '')
+      i++
+    } else {
+      source += escapeRegExp(char)
+    }
+  }
+  return new RegExp(`^${source}$`)
+}
+
+function escapeRegExp(char: string): string {
+  return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char
+}
+
+// ---------------------------------------------------------------------------
 // Capabilities
 // ---------------------------------------------------------------------------
 

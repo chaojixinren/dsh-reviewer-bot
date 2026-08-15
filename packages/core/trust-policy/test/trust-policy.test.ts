@@ -13,10 +13,12 @@ import {
   explainDenialReason,
   meetsTrust,
   resolveTrust,
+  scriptsFieldChanged,
   toolRestrictionFor,
   visibleTools,
+  writeRedLineViolation,
 } from '../src/index.ts'
-import type { ActorContext, Config, TrustInput } from '../src/index.ts'
+import type { ActorContext, Config, TrustInput, WriteRedLine } from '../src/index.ts'
 
 /**
  * Trust resolution is a security boundary, so these tests assert what is
@@ -288,6 +290,18 @@ describe('decideToolCall', () => {
     expect(decision?.kind).toBe('deny')
   })
 
+  it('denies a write tool when the actor lacks write permission', () => {
+    // `@dsr fix` needs actor permission AND allowWrite; a reader with the opt-in
+    // on is still refused on the permission condition, not the config one.
+    const decision = decideToolCall(
+      input({ permission: 'read', intent: 'fix', allowWrite: true }),
+      'propose_patch',
+    )
+    expect(decision?.kind).toBe('deny')
+    if (decision?.kind !== 'deny') throw new Error('expected deny')
+    expect(decision.reason).toMatch(/permission/)
+  })
+
   it('abstains on a tool it does not govern, so other plugins keep their say', () => {
     expect(decideToolCall(input({ permission: 'admin' }), 'some_other_plugin_tool')).toBeUndefined()
   })
@@ -420,3 +434,204 @@ describe('tool whitelist parity (M2)', () => {
     }
   })
 })
+
+describe('writeRedLineViolation', () => {
+  const PROTECTED = ['.github/**', '.gitlab-ci.yml', '.circleci/**', 'Jenkinsfile']
+
+  function redLine(over: Partial<WriteRedLine> = {}): WriteRedLine {
+    return {
+      path: 'src/index.ts',
+      diff: '@@ -1,1 +1,1 @@\n- old\n+ new\n',
+      changedPaths: ['src/index.ts'],
+      binaryPaths: [],
+      ...over,
+    }
+  }
+
+  // Every red line must have at least one negative (deny) case. The deny reason
+  // is a non-empty string; `undefined` would be an abstention, which is a miss.
+  const denials: readonly { name: string; write: WriteRedLine }[] = [
+    {
+      name: 'path traversal with ..',
+      write: redLine({ path: '../../etc/passwd' }),
+    },
+    {
+      name: 'absolute path',
+      write: redLine({ path: '/etc/passwd' }),
+    },
+    {
+      name: 'windows drive path',
+      write: redLine({ path: 'C:\\Windows\\system32\\x' }),
+    },
+    {
+      name: 'NUL byte in path',
+      write: redLine({ path: 'src/a\0.ts' }),
+    },
+    {
+      name: 'protected .github/**',
+      write: redLine({ path: '.github/workflows/ci.yml' }),
+    },
+    {
+      name: 'protected .github/** with a leading ./ prefix',
+      write: redLine({ path: './.github/workflows/ci.yml' }),
+    },
+    {
+      name: 'protected .github/** with leading whitespace',
+      write: redLine({ path: '  .github/workflows/ci.yml' }),
+    },
+    {
+      name: 'protected Jenkinsfile',
+      write: redLine({ path: 'Jenkinsfile' }),
+    },
+    {
+      name: 'protected .gitlab-ci.yml',
+      write: redLine({ path: '.gitlab-ci.yml' }),
+    },
+    {
+      name: 'binary file',
+      write: redLine({ path: 'assets/logo.png', binaryPaths: ['assets/logo.png'] }),
+    },
+    {
+      name: 'package.json scripts field',
+      write: redLine({ path: 'package.json', diff: '@@ -1,1 +1,1 @@\n- "scripts": {\n+ "scripts": {\n' }),
+    },
+    {
+      name: 'lockfile without a matching manifest change',
+      write: redLine({ path: 'pnpm-lock.yaml', changedPaths: ['src/index.ts'] }),
+    },
+  ]
+
+  for (const { name, write } of denials) {
+    it(`denies ${name}`, () => {
+      const denial = writeRedLineViolation(write, PROTECTED)
+      expect(denial, name).toBeTypeOf('string')
+      if (typeof denial !== 'string') throw new Error(`expected a denial for ${name}`)
+      expect(denial.length, name).toBeGreaterThan(0)
+    })
+  }
+
+  it('allows a normal source-file write', () => {
+    expect(writeRedLineViolation(redLine(), PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a package.json change that does not touch scripts (field-level)', () => {
+    const write = redLine({
+      path: 'package.json',
+      diff: '@@ -1,1 +1,1 @@\n- "dependencies": {\n+ "dependencies": {\n',
+    })
+    expect(writeRedLineViolation(write, PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a lockfile when the same request also changes its manifest', () => {
+    const write = redLine({
+      path: 'packages/core/pnpm-lock.yaml',
+      changedPaths: ['packages/core/package.json', 'packages/core/pnpm-lock.yaml'],
+    })
+    expect(writeRedLineViolation(write, PROTECTED)).toBeUndefined()
+  })
+
+  it('allows a path not in the binary list', () => {
+    expect(writeRedLineViolation(redLine({ path: 'assets/logo.svg' }), PROTECTED)).toBeUndefined()
+  })
+
+  it('uses config.protectedPaths, not a hardcoded list', () => {
+    // A maintainer-supplied protected path must take effect; a path that only
+    // matches a pattern NOT configured is allowed.
+    expect(writeRedLineViolation(redLine({ path: 'SECRETS.md' }), ['SECRETS.md'])).toBeTypeOf('string')
+    expect(writeRedLineViolation(redLine({ path: 'SECRETS.md' }), PROTECTED)).toBeUndefined()
+  })
+
+  it('denial is terminal: a later listener cannot re-grant a matched red line', () => {
+    // The guard contract is `string | undefined` — a non-empty string denies,
+    // `undefined` abstains. There is no `allow` arm, so once a red line matches
+    // the only outcomes are a reason (denied) or an abstention for a different
+    // write; nothing can flip a denial back to permission. Re-evaluating the
+    // same facts under a SUPERSET protected list still refuses, which is the
+    // closest pure-function encoding of "a later listener can only add denials".
+    for (const { name, write } of denials) {
+      const first = writeRedLineViolation(write, PROTECTED)
+      const second = writeRedLineViolation(write, [...PROTECTED, 'extra/**'])
+      expect(first, name).toBeTypeOf('string')
+      expect(second, name).toBeTypeOf('string')
+    }
+  })
+})
+
+describe('scriptsFieldChanged', () => {
+  const manifest = (scripts: unknown): string => JSON.stringify({ name: 'x', scripts })
+
+  it('detects a script-value edit whose diff context would not reach the "scripts" key', () => {
+    const before = manifest({ build: 'tsc', test: 'vitest run' })
+    const after = manifest({ build: 'tsc', test: 'vitest run --coverage' })
+    expect(scriptsFieldChanged(before, after)).toBe(true)
+  })
+
+  it('reports no change when only dependencies move (field-level)', () => {
+    const before = JSON.stringify({ name: 'x', scripts: { test: 'vitest' }, dependencies: { a: '1' } })
+    const after = JSON.stringify({ name: 'x', scripts: { test: 'vitest' }, dependencies: { a: '2' } })
+    expect(scriptsFieldChanged(before, after)).toBe(false)
+  })
+
+  it('treats adding or removing the scripts field as a change', () => {
+    expect(scriptsFieldChanged('{"name":"x"}', '{"name":"x","scripts":{"a":"1"}}')).toBe(true)
+    expect(scriptsFieldChanged('{"name":"x","scripts":{"a":"1"}}', '{"name":"x"}')).toBe(true)
+  })
+
+  it('fails closed when a manifest cannot be parsed', () => {
+    expect(scriptsFieldChanged('not json', 'not json either')).toBe(true)
+  })
+
+  it('treats an empty (new) manifest as having no scripts', () => {
+    expect(scriptsFieldChanged('', '{"name":"x","dependencies":{"a":"1"}}')).toBe(false)
+    expect(scriptsFieldChanged('', '{"name":"x","scripts":{"a":"1"}}')).toBe(true)
+  })
+})
+
+describe('createTrustPolicy write context', () => {
+  function config(over: Partial<Config> = {}): Config {
+    return { allowWrite: false, protectedPaths: [], ...over }
+  }
+
+  it('binds and restores the change-set facts the write guard reads', () => {
+    const policy = createTrustPolicy(config())
+    expect(policy.writeContext).toBeUndefined()
+
+    const context = { changedPaths: ['package.json'], binaryPaths: ['img.png'] }
+    const dispose = policy.bindWriteContext(context)
+    expect(policy.writeContext).toBe(context)
+
+    dispose()
+    expect(policy.writeContext).toBeUndefined()
+  })
+
+  it('rejectWrite fails closed when no write-guard context is bound', () => {
+    const policy = createTrustPolicy(config())
+    expect(policy.rejectWrite('src/a.ts', '@@ -1 +1 @@\n-x\n+y\n', 'x\n', 'y\n')).toMatch(/no write-guard context/)
+  })
+
+  it('rejectWrite re-checks a protected path at the mutate stage', () => {
+    const policy = createTrustPolicy(config({ protectedPaths: ['.github/**'] }))
+    policy.bindWriteContext({ changedPaths: ['.github/workflows/ci.yml'], binaryPaths: [] })
+    expect(policy.rejectWrite('.github/workflows/ci.yml', '@@ -1 +1 @@\n-x\n+y\n', 'x\n', 'y\n'))
+      .toMatch(/protected/)
+  })
+
+  it('rejectWrite catches a scripts edit the diff-based guard would miss', () => {
+    const policy = createTrustPolicy(config())
+    policy.bindWriteContext({ changedPaths: ['package.json'], binaryPaths: [] })
+    // The diff hunk only shows the script VALUE, never the `"scripts"` key.
+    const diff = '@@ -3,1 +3,1 @@\n-    "test": "vitest run"\n+    "test": "vitest run && evil"\n'
+    const before = '{\n  "scripts": {\n    "test": "vitest run"\n  }\n}\n'
+    const after = '{\n  "scripts": {\n    "test": "vitest run && evil"\n  }\n}\n'
+    expect(policy.rejectWrite('package.json', diff, before, after)).toMatch(/scripts/)
+  })
+
+  it('rejectWrite allows a package.json change that does not touch scripts', () => {
+    const policy = createTrustPolicy(config())
+    policy.bindWriteContext({ changedPaths: ['package.json'], binaryPaths: [] })
+    const before = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"1"}}'
+    const after = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"2"}}'
+    expect(policy.rejectWrite('package.json', '@@ -1 +1 @@\n', before, after)).toBeUndefined()
+  })
+})
+
