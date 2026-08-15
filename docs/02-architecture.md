@@ -25,7 +25,9 @@ flowchart TB
     subgraph DSHRT["DSH 运行时（非确定性内核）"]
         AG["ctx.agents<br/>Agent 会话"]
         TL["ctx.tools<br/>评审工具集"]
-        SB["ctx.sandbox<br/>写模式隔离"]
+        SBP["ctx.sandboxPolicy<br/>写策略解析"]
+        FS["ctx.fs<br/>文件写入落界"]
+        SB["ctx.sandbox<br/>校验子进程 argv 包裹"]
         SA["ctx.subagents<br/>分片并行"]
         MEM["记忆 / 上下文"]
     end
@@ -45,6 +47,8 @@ flowchart TB
     RT -->|"受限上下文 + 工具白名单"| AG
     TL --> AG
     TP -.->|"tools/pre-execute 门禁"| TL
+    SBP --> AG
+    FS --> AG
     SB --> AG
     SA --> AG
     MEM --> AG
@@ -60,7 +64,7 @@ flowchart TB
     classDef rule fill:#3a341f,stroke:#b94,color:#fed
     class GH,REPO untrusted
     class DA,DW,DC,RT,TP,FG,PR2 det
-    class AG,TL,SB,SA,MEM kernel
+    class AG,TL,SBP,FS,SB,SA,MEM kernel
     class RR,RB,R3 rule
 ```
 

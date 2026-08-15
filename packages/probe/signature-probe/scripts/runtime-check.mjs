@@ -11,6 +11,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import toolsPlugin from '@deepseek-ai/dsh-tools'
 import systemPromptPlugin from '@deepseek-ai/dsh-system-prompt'
+import sandboxPolicyPlugin from '@deepseek-ai/dsh-sandbox-policy'
 import * as probe from '../lib/index.js'
 
 /** Cordis activates plugins asynchronously; give the epoch time to settle. */
@@ -74,6 +75,26 @@ record(
   'guard abstains for an unlisted tool',
   ctx.tools.guardReason({ ...execution, name: 'other_tool' }) === undefined,
 )
+
+// --- 5. Write-mode sandbox policy -------------------------------------------
+// Proves the M3 write path's policy home resolves without a session: the
+// fail-safe default is `read-only`, and `workspaceRoot` is always absolute.
+const policyCtx = new Context()
+policyCtx.plugin(systemPromptPlugin)
+policyCtx.plugin(sandboxPolicyPlugin, { workspaceRoot: process.cwd() })
+await settle()
+record('sandboxPolicy service available', !!policyCtx.sandboxPolicy)
+if (policyCtx.sandboxPolicy) {
+  const resolved = policyCtx.sandboxPolicy.resolve()
+  record(
+    'sandboxPolicy resolves fail-safe read-only + absolute workspaceRoot',
+    policyCtx.sandboxPolicy.defaultMode === 'read-only'
+      && resolved.mode === 'read-only'
+      && typeof resolved.workspaceRoot === 'string'
+      && resolved.workspaceRoot.length > 0,
+    JSON.stringify(resolved),
+  )
+}
 
 const failed = checks.filter((c) => !c.pass)
 console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)

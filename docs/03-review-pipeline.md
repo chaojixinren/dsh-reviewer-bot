@@ -82,7 +82,9 @@ sequenceDiagram
     participant F as Forge
     participant R as review-runtime
     participant T as trust-policy
-    participant S as ctx.sandbox
+    participant P as ctx.sandboxPolicy
+    participant FS as ctx.fs
+    participant SB as ctx.sandbox
     participant A as DSH Agent
     participant V as validator
 
@@ -95,15 +97,20 @@ sequenceDiagram
         R->>F: 回帖说明缺哪个条件
     else 双重满足
         T-->>R: TrustLevel=trusted-write
-        R->>S: 建隔离工作区（去 .git 副本，无 shell，无网络）
+        Note over R: driver 预置工作区：<br/>session cwd 是去 .git 的不可信副本
+        R->>P: resolve(session) → SandboxExecutionPolicy
+        Note over P: mode + workspaceRoot<br/>（cwd 即写边界）
         R->>A: 启动 Agent（工具白名单 + 写工具）
-        A->>S: 提出补丁
+        A->>FS: writeText/editText(…, sandboxPolicy)
+        Note over FS: 沙箱化 fs 后端按策略落界，<br/>裸后端忽略该参数
         A-->>R: Patch[]（不可信）
         R->>V: 校验补丁
         V->>V: 路径白名单 → 无二进制 → 无 .github/** → hunk 可 apply → 体积上限
         V-->>R: 通过的 Patch[]
-        R->>S: apply + 跑校验命令（JSON argv，不过 shell）
-        S-->>R: 校验结果
+        R->>FS: apply 补丁（落界内）
+        R->>SB: confine(校验 argv, policy) → ConfinedArgv
+        R->>R: spawn ConfinedArgv 跑校验命令（JSON argv，不过 shell）
+        SB-->>R: 校验结果（含执行完整度与拒绝特征串）
         alt 校验失败
             R->>F: 报告失败 + 完整日志，不提交
         else 校验通过
@@ -113,6 +120,14 @@ sequenceDiagram
         end
     end
 ```
+
+**写模式隔离的三段式**（`ctx.sandbox` 不是隔离后端，见 docs/05）：
+
+1. **策略解析** —— `ctx.sandboxPolicy.resolve(session)` 产出 `SandboxExecutionPolicy`（`mode` + `workspaceRoot`）。session cwd 即写边界；driver 负责把它指向去 `.git` 的不可信副本。
+2. **文件写入** —— `ctx.fs.writeText / editText(…, sandboxPolicy)` 由沙箱化 fs 后端按策略拦界。
+3. **子进程** —— `ctx.sandbox.confine(argv, policy)` 把精确 argv 包进受限执行，返回 `ConfinedArgv`（含执行完整度、拒绝特征串）；校验命令仍是 JSON argv、不过 shell。
+
+「无网络」不在 `SandboxMode` 词汇表内：靠 Agent 不持网络工具 + 控制器代跑网络保证（docs/04）。可选 Docker 隔离是 driver 层实现（Action 模式容器镜像），不是 `ctx.sandbox`。
 
 **写路径的硬红线**（`ctx.tools.guard()` 单调拒绝，后续 listener 无法翻案）：
 

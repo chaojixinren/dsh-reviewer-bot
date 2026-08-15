@@ -31,7 +31,9 @@
     - id: dshrb-forge-github
       name: '@dshrb/forge-github'
       config:
-        token: $FORGE_TOKEN
+        # DSH patch config does NOT expand bare `$VAR`. Use `!!js` so the value
+        # is evaluated against the loader scope (`process` / `ctx` in scope).
+        token: !!js process.env.FORGE_TOKEN
 
     - id: dshrb-tool-review
       name: '@dshrb/tool-review'

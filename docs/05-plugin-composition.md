@@ -17,12 +17,23 @@ DSH 官方 [extension-cookbook](https://github.com/deepseek-ai/deepseek-harness/
 | finding 审计与最终产出观测 | `ctx.on('tools/result')` 观测不可变终局结果 |
 | 大 PR 分片并行 | `ctx.subagents` provider 注册表 |
 | 跨 PR 记忆 | section provider + 记忆工具 |
-| 写模式隔离 | `ctx.sandbox` 后端 |
+| 写模式隔离（文件写入边界） | `ctx.sandboxPolicy.resolve()` 产出 `SandboxExecutionPolicy`，`ctx.fs.writeText(..., sandboxPolicy)` 按它落界 |
+| 写模式隔离（校验子进程） | `ctx.sandbox.confine(argv, policy)` 把精确 argv 包进受限执行 |
 | 需人工确认的高风险操作 | `tools/pre-execute` 返回 `ask` + `ctx.approval` |
 | Agent 会话生命周期 | `ctx.agents` / `ctx.sessions`，收尾走 `AgentHandle.dispose()` |
 | 热重载 | 所有注册都是 `ctx.effect`，卸载自动回滚 |
 
 **没有任何一项需要 fork DSH 或修改 agent loop。** 这是 B1 赌注的技术前提。
+
+### 写模式隔离的准确落点
+
+实测上游 `@deepseek-ai/dsh@0.1.0-rc.6`（见 `@dshrb/signature-probe`）后，写模式隔离**不是** `ctx.sandbox` 一个后端就能表达的：
+
+- `ctx.sandbox` 只是**进程 argv 包装器**：`confine(argv, policy): ConfinedArgv`。它把调用方即将 spawn 的精确 argv 包进受限执行，返回替换用的 argv、执行完整度与拒绝特征串。它不建 `.git` 剥离副本、不挡网络、不管 Docker。容器 / microVM / 远程执行是替换外围能力缝的**后端**，不是这个服务。
+- **策略单一归属**是 `ctx.sandboxPolicy`：`defaultMode`、`workspaceRoot`、`resolve(request): SandboxExecutionPolicy`。文件落界、一次性 bash、terminal 后端读的是同一份解析结果。
+- **文件写入边界**由 `ctx.fs.writeText(target, content, expected, signal, sandboxPolicy)` 落实：沙箱化 fs 后端按 `SandboxExecutionPolicy`（`mode` + `workspaceRoot`）拦界，裸后端忽略该参数。
+- `SandboxMode` 只描述**文件效应**（`read-only` / `workspace-write` / `danger-full-access`）；「无网络」和「进程可见性」**不在这个词汇表内**——无网络靠「Agent 不持网络工具 + 控制器代跑网络」保证，不是靠 sandbox。
+- 可选 Docker 隔离属于 **driver 层**实现（Action 模式用容器镜像），或独立扩展点，与 `ctx.sandbox` 无关。
 
 ## 插件模块形态
 

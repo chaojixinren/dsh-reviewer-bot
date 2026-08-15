@@ -11,6 +11,8 @@
  *   2. ctx.tools.register()      — via defineTool, incl. mandatory output schema
  *   3. tools/pre-execute         — waterfall returning PreToolDecision
  *   4. ctx.tools.guard()         — monotonic sync guard returning string | undefined
+ *   5. write-mode sandbox        — confine / sandboxPolicy.resolve / fs.writeText
+ *      (type-level; see ./write-mode-contract.ts)
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -89,3 +91,5 @@ export function apply(ctx: Context, config: Config): void {
       : undefined
   })
 }
+
+export { assertWriteModeContracts } from './write-mode-contract.js'

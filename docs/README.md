@@ -40,7 +40,8 @@ ctx.tools.guard()         单调终局拒绝（写模式硬红线）
 ctx.on('session/event')   进度上报（sticky comment 三阶段）
 ctx.systemPrompt.section() 注入评审准则与仓库约定
 ctx.agents / ctx.sessions  会话生命周期
-ctx.sandbox               写模式隔离后端
+ctx.sandboxPolicy + ctx.fs 写模式落界（策略解析 + 文件写入）
+ctx.sandbox.confine()      校验子进程 argv 包裹
 ctx.subagents             大 PR 分片并行评审
 ```
 

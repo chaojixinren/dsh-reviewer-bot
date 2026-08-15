@@ -143,6 +143,12 @@ flowchart LR
 
 策略：跟随上游 rc 但不追最新。当前锁在 rc.6（写作时的最新 rc）；后续升级滞后一个 rc 以规避回归。
 
+## 运行时与部署兼容
+
+- **GitHub Actions JavaScript 运行时**（#2）：`using: 'node24'` 已 GA。官方 metadata-syntax 文档列出 `node20`（Node v20）与 `node24`（Node v24）两种 JavaScript 运行时，`action.yml` 保持 `using: 'node24'` 即可，无需回退 node20。
+- **DSH 配置层环境变量**（#2）：`cordis.patch.yml` 的配置值**不做 `$VAR` 展开**。注入环境变量要用 `!!js` 表达式（loader 在插件激活时求值，作用域含 `process` / `ctx`），例如 `token: !!js process.env.FORGE_TOKEN`；裸 `$FORGE_TOKEN` 会作为字面量字符串传给插件。`bundle/cordis.patch.yml` 已按此修正。
+- **写模式隔离落点**（#1）：`ctx.sandbox` 不是隔离后端，只是 `confine(argv, policy)` 的 argv 包装器；策略单一归属 `ctx.sandboxPolicy.resolve()`，文件写入落界走 `ctx.fs.writeText(..., sandboxPolicy)`，「无网络」不在 `SandboxMode` 词汇表内，可选 Docker 属 driver 层。详见 docs/05 与 docs/03。
+
 ## 当前状态
 
 M0 进行中：设计文档已完成，脚手架目录已建立，业务代码未实现（按需求刻意保留）。
