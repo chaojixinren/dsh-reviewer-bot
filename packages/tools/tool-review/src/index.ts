@@ -206,6 +206,9 @@ export function createReviewTools(deps: ReviewToolDeps): readonly ToolDefinition
       const shards = requireContext(context()).shards
       const shard = shards[args.index]
       if (shard === undefined) {
+        if (shards.length === 0) {
+          throw new Error(`no diff shard at index ${args.index}; the diff has no shards`)
+        }
         throw new Error(`no diff shard at index ${args.index}; shards are 0..${shards.length - 1}`)
       }
       return { index: shard.index, files: [...shard.files], text: shard.text, truncated: shard.truncated }

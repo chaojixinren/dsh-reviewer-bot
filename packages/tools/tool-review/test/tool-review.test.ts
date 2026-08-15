@@ -99,6 +99,11 @@ describe('read_diff_shard', () => {
     await expect(tool.execute({ index: 7 }, fakeExec(new AbortController().signal))).rejects.toThrow(/no diff shard at index 7/)
   })
 
+  it('reports no shards instead of an inverted range when the diff is empty', async () => {
+    const tool = findTool(makeDeps(makeContext({ shards: [] })), 'read_diff_shard')
+    await expect(tool.execute({ index: 0 }, fakeExec(new AbortController().signal))).rejects.toThrow(/the diff has no shards/)
+  })
+
   it('honors exec.signal', async () => {
     const controller = new AbortController()
     controller.abort()
