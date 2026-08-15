@@ -4,14 +4,14 @@
 
 ## 当前阶段
 
-项目处于 **M1（只读评审闭环）进行中** 阶段：设计文档已冻结，领域类型（`review-core`）、forge 接口/注册表 + 锚定器、信任判定（`trust-policy`）、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 校验链已落地，评审管线其余阶段、进度上报、规则、GitLab provider 与 driver 外壳仍在实现。
+项目处于 **M2（规则与本地化）进行中** 阶段：M1 只读评审闭环已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`）。M2 交付规则注册与本地反馈闭环：`rule-registry` + `rules-baseline` 让规则变成可注册、可审计的数据，`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）与 `forge-local` 让调规则、调提示词不必推 PR 等 CI。
 
 动手前请先读：
 
 - [`docs/README.md`](./docs/README.md) —— 设计文档索引与 5 条设计原则
 - [`docs/09-roadmap.md`](./docs/09-roadmap.md) —— 里程碑、验收标准、风险登记与「当前状态」
 
-正在进行的任务以 roadmap 的 **M1 验收标准**为准，欢迎从「当前状态 → 未实现（刻意）」清单里认领。认领前建议先开 issue 说明意图，避免重复劳动。
+正在进行的任务以 roadmap 的 **M2 验收标准**为准，欢迎从「当前状态 → 未实现（刻意）」清单里认领。认领前建议先开 issue 说明意图，避免重复劳动。
 
 ## 环境与快速开始
 
