@@ -1,0 +1,80 @@
+#!/usr/bin/env node
+/**
+ * Generates package.json + tsconfig.json for every workspace package.
+ *
+ * Manifest invariants follow the upstream DSH package checklist:
+ * private, type module, main lib/index.js, types lib/types/index.d.ts,
+ * cordis in BOTH peerDependencies and devDependencies at the same range.
+ *
+ * Re-run after adding a package to the table below.
+ */
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const VERSION = '0.1.0'
+const CORDIS = '*'
+
+/** dir, package name, description, workspace deps (short names) */
+const PACKAGES = [
+  ['core/review-core', 'review-core', 'Domain types and invariants for review requests, findings, and verdicts.', []],
+  ['core/forge', 'forge', 'ForgeGateway capability interfaces and the provider registry.', ['review-core']],
+  ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core']],
+  ['core/rule-registry', 'rule-registry', 'Declarative review rule pack registry with glob matching.', ['review-core']],
+  ['core/progress', 'progress', 'Sticky progress comment lifecycle reporter.', ['review-core', 'forge']],
+  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'progress', 'tool-review']],
+  ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge']],
+  ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge']],
+  ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],
+  ['rules/rules-baseline', 'rules-baseline', 'Baseline review rule pack: correctness, security, maintainability.', ['review-core', 'rule-registry']],
+  ['drivers/driver-action', 'driver-action', 'GitHub Action driver shell.', ['review-core', 'review-runtime', 'forge-github']],
+  ['drivers/driver-webhook', 'driver-webhook', 'Long-running webhook daemon driver shell.', ['review-core', 'review-runtime']],
+  ['drivers/driver-cli', 'driver-cli', 'Local dry-run, replay, and rule debugging CLI.', ['review-core', 'review-runtime']],
+]
+
+const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
+
+for (const [dir, short, description, deps] of PACKAGES) {
+  const pkgDir = join(root, 'packages', dir)
+  mkdirSync(join(pkgDir, 'src'), { recursive: true })
+
+  const dependencies = { '@deepseek-ai/schemastery': '*' }
+  const devDependencies = { '@deepseek-ai/cordis': CORDIS }
+  for (const d of deps) {
+    dependencies[`@dshrb/${d}`] = 'workspace:*'
+  }
+
+  const pkg = {
+    name: `@dshrb/${short}`,
+    version: VERSION,
+    private: true,
+    type: 'module',
+    description,
+    main: 'lib/index.js',
+    types: 'lib/types/index.d.ts',
+    exports: {
+      '.': {
+        types: './lib/types/index.d.ts',
+        default: './lib/index.js',
+      },
+    },
+    files: ['lib/index.js', 'lib/types/**/*.d.ts'],
+    dependencies,
+    peerDependencies: { '@deepseek-ai/cordis': CORDIS },
+    devDependencies,
+  }
+  writeFileSync(join(pkgDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
+
+  const references = deps.map(d => ({
+    path: relative(pkgDir, join(root, 'packages', dirOf.get(d))).replaceAll('\\', '/'),
+  }))
+  const tsconfig = {
+    extends: relative(pkgDir, join(root, 'tsconfig.base.json')).replaceAll('\\', '/'),
+    compilerOptions: { rootDir: 'src', outDir: 'lib', declarationDir: 'lib/types' },
+    include: ['src/**/*'],
+    ...(references.length ? { references } : {}),
+  }
+  writeFileSync(join(pkgDir, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2) + '\n')
+  console.log(`generated packages/${dir}`)
+}

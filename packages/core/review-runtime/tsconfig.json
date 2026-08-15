@@ -1,0 +1,31 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "declarationDir": "lib/types"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../review-core"
+    },
+    {
+      "path": "../forge"
+    },
+    {
+      "path": "../trust-policy"
+    },
+    {
+      "path": "../rule-registry"
+    },
+    {
+      "path": "../progress"
+    },
+    {
+      "path": "../../tools/tool-review"
+    }
+  ]
+}

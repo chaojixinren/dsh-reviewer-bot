@@ -1,0 +1,39 @@
+# Comment-triggered commands, including guarded write mode.
+#
+# `@dsr fix` requires BOTH conditions below to hold:
+#   - the commenting actor holds write, maintain, or admin permission, and
+#   - `allow-write: "true"` is set here by a repository maintainer.
+# Neither alone is sufficient.
+
+name: DSHRB commands
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  command:
+    # The command must be on the comment's first line, so quoting someone else's
+    # comment cannot trigger a run.
+    if: startsWith(github.event.comment.body, '@dsr')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: dshrb/reviewer-action@v1
+        with:
+          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          allow-write: 'true'
+          run-tests: 'true'
+          # argv arrays, executed directly — no shell, so metacharacters in a
+          # path cannot become a command.
+          test-commands: '[["npm","ci","--ignore-scripts"],["npm","test"],["npm","run","typecheck"]]'
+          container-image: docker.io/library/node:24.18.0-bookworm@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          timeout-minutes: '30'

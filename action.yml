@@ -1,0 +1,102 @@
+name: 'DSH Reviewer Bot'
+description: 'Code review, CI diagnosis, and guarded fixes powered by DeepSeek Harness.'
+author: 'dshrb'
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  deepseek-api-key:
+    description: 'DeepSeek API key. Store it in repository secrets.'
+    required: true
+  github-token:
+    description: 'Token used to read the change request and publish comments.'
+    required: false
+    default: ${{ github.token }}
+  allow-write:
+    description: >-
+      Enables write intents such as `@dsr fix`. Defaults to false. A fork change
+      request is always review-only regardless of this value. Note that
+      `@dsr fix` also requires the commenting actor to hold write, maintain, or
+      admin permission — this input alone grants nothing.
+    required: false
+    default: 'false'
+  run-tests:
+    description: 'Run validation commands after applying patches in write mode.'
+    required: false
+    default: 'false'
+  test-commands:
+    description: >-
+      JSON array of argv arrays, for example
+      '[["npm","ci","--ignore-scripts"],["npm","test"]]'.
+      Each entry is executed directly and is NOT expanded by a shell, so shell
+      metacharacters in file names cannot become commands.
+    required: false
+  container-image:
+    description: >-
+      Isolation image for write mode. Requires a complete digest. Docker must be
+      available on the runner. Read-only reviews do not need this.
+    required: false
+  progress-comment:
+    description: 'Maintain a sticky progress comment. Affects lifecycle updates only.'
+    required: false
+    default: 'true'
+  min-severity:
+    description: 'Lowest severity to publish: blocker, major, minor, nit, or info.'
+    required: false
+    default: 'minor'
+  rule-packs:
+    description: 'JSON array of additional rule pack package names to load.'
+    required: false
+  timeout-minutes:
+    description: >-
+      Internal watchdog budget. Keep the job-level timeout a few minutes above
+      this so outputs can still be finalized on timeout.
+    required: false
+    default: '25'
+
+outputs:
+  conclusion:
+    description: 'success, neutral, or failure.'
+  operation:
+    description: 'The intent that ran: review, explain, diagnose, fix, or rules.'
+  summary:
+    description: 'Human-readable summary. Untrusted text — pass via env, never into a shell.'
+  review-summary:
+    description: 'Backward-compatible alias for summary.'
+  findings-count:
+    description: 'Number of published findings.'
+  blockers-count:
+    description: 'Number of blocker-severity findings.'
+  branch-name:
+    description: 'Branch written to in write mode.'
+  pull-request-url:
+    description: 'URL of a change request opened by this run.'
+  commit-sha:
+    description: 'Commit created in write mode.'
+  trust:
+    description: 'Resolved trust level: none, untrusted, trusted-read, or trusted-write.'
+  forge:
+    description: 'Forge provider id.'
+  duration-ms:
+    description: 'Total run duration.'
+  comment-id:
+    description: 'Sticky comment id.'
+  replay-id:
+    description: 'Snapshot id for `dshrb replay`.'
+  error-code:
+    description: 'Machine-readable failure code, empty on success.'
+  error-message:
+    description: 'Failure message, empty on success.'
+  result-json:
+    description: >-
+      Versioned envelope (schemaVersion 1) with status, timing, policy,
+      isolation, findings, publication stats, validation, write result, rules,
+      and a failure object. Model-derived strings inside remain untrusted: do
+      not splice them into shell commands.
+
+runs:
+  # TODO(M1): build the bundled entrypoint in release CI and attach it to the
+  #           release, rather than committing dist/ to the source tree.
+  using: 'node24'
+  main: 'dist/index.js'

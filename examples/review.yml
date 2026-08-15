@@ -1,0 +1,45 @@
+# Minimal review setup.
+#
+# Three security properties, each load-bearing:
+#
+# 1. `pull_request_target` runs in the base repository's context, so secrets are
+#    available — and we check out `base.sha`, so fork code is never executed.
+# 2. `persist-credentials: false` keeps the token out of .git/config, where a
+#    later step could read it.
+# 3. The job timeout sits above the action's internal watchdog, leaving a window
+#    to finalize outputs instead of being killed mid-write.
+
+name: DSHRB review
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - id: review
+        uses: dshrb/reviewer-action@v1
+        with:
+          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+
+      # Outputs are written even when the step above fails, so read them under
+      # always(). Untrusted strings go through env — never `run: echo "${{ ... }}"`,
+      # which would splice model output into a shell command.
+      - if: always()
+        run: node -e 'console.log(process.env.SUMMARY)'
+        env:
+          SUMMARY: ${{ steps.review.outputs.summary }}
+          BLOCKERS: ${{ steps.review.outputs.blockers-count }}

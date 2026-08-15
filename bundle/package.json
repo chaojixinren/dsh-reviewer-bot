@@ -1,0 +1,24 @@
+{
+  "name": "@dshrb/bundle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH bundle: installs DSH Reviewer Bot into a profile with `dsh plugin add`.",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@dshrb/forge-github": "workspace:*",
+    "@dshrb/progress": "workspace:*",
+    "@dshrb/review-runtime": "workspace:*",
+    "@dshrb/rule-registry": "workspace:*",
+    "@dshrb/rules-baseline": "workspace:*",
+    "@dshrb/tool-review": "workspace:*",
+    "@dshrb/trust-policy": "workspace:*"
+  }
+}

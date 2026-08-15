@@ -1,0 +1,41 @@
+# Configuration layer contributed by @dshrb/bundle.
+#
+# Applied when a profile lists this bundle. Plugin rows reference packages by
+# NAME (not a relative path) so Node resolution finds the installed code.
+#
+# Layer order: bundle layers first, then the user's own profile patch — so a
+# user override in their profile always wins. One exception by design:
+# `allowWrite` must not be raisable from a repository-controlled layer.
+# See docs/05-plugin-composition.md.
+
+- insert:
+    # Rule registry must load before packs that inject it; Cordis handles the
+    # ordering through reactive coeffects, so this is for human readability.
+    - id: dshrb-rule-registry
+      name: '@dshrb/rule-registry'
+      config:
+        minSeverity: minor
+
+    - id: dshrb-rules-baseline
+      name: '@dshrb/rules-baseline'
+
+    - id: dshrb-trust-policy
+      name: '@dshrb/trust-policy'
+      config:
+        allowWrite: false
+
+    - id: dshrb-forge-github
+      name: '@dshrb/forge-github'
+      config:
+        token: $FORGE_TOKEN
+
+    - id: dshrb-tool-review
+      name: '@dshrb/tool-review'
+
+    - id: dshrb-progress
+      name: '@dshrb/progress'
+
+    - id: dshrb-review-runtime
+      name: '@dshrb/review-runtime'
+      config:
+        timeoutMinutes: 25

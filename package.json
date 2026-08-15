@@ -1,0 +1,29 @@
+{
+  "name": "@dshrb/root",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Reviewer Bot — native DeepSeek Harness plugin suite for code review across forges",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "workspaces": [
+    "packages/*/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint .",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "clean": "rm -rf packages/*/*/lib"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@types/node": "24.3.0",
+    "oxlint": "1.9.0",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

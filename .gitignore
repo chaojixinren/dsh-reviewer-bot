@@ -1,0 +1,14 @@
+node_modules/
+lib/
+dist/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+# Replay snapshots contain repository source. Never commit them.
+.dshrb/snapshots/
+
+.omc/
+.DS_Store

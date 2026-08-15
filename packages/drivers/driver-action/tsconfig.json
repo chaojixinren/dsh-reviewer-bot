@@ -1,0 +1,22 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "declarationDir": "lib/types"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../../core/review-core"
+    },
+    {
+      "path": "../../core/review-runtime"
+    },
+    {
+      "path": "../../forge/forge-github"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "composite": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "paths": {
+      "@dshrb/*": [
+        "./packages/core/*/src",
+        "./packages/forge/*/src",
+        "./packages/tools/*/src",
+        "./packages/rules/*/src",
+        "./packages/drivers/*/src"
+      ]
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@dshrb/review-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The eight-stage review pipeline orchestrator.",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "*",
+    "@dshrb/review-core": "workspace:*",
+    "@dshrb/forge": "workspace:*",
+    "@dshrb/trust-policy": "workspace:*",
+    "@dshrb/rule-registry": "workspace:*",
+    "@dshrb/progress": "workspace:*",
+    "@dshrb/tool-review": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}
