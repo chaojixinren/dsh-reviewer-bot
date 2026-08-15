@@ -188,6 +188,27 @@ describe('parseGitDiff', () => {
     expect(diff.files[0]?.hunks).toEqual([])
   })
 
+  it('keeps a binary file whose quoted path contains a space', () => {
+    const diff = parseGitDiff([
+      'diff --git "a/logo bar.png" "b/logo bar.png"',
+      'index abc..def 100644',
+      'Binary files "a/logo bar.png" and "b/logo bar.png" differ',
+    ].join('\n'))
+    expect(diff.files[0]).toMatchObject({ path: 'logo bar.png', binary: true })
+    expect(diff.files[0]?.hunks).toEqual([])
+  })
+
+  it('decodes octal-quoted non-ASCII binary paths instead of dropping them', () => {
+    const header = String.raw`diff --git "a/\344\270\255\346\226\207.bin" "b/\344\270\255\346\226\207.bin"`
+    const diff = parseGitDiff([
+      header,
+      'index abc..def 100644',
+      String.raw`Binary files "a/\344\270\255\346\226\207.bin" and "b/\344\270\255\346\226\207.bin" differ`,
+    ].join('\n'))
+    expect(diff.files[0]).toMatchObject({ path: '中文.bin', binary: true })
+    expect(diff.files[0]?.hunks).toEqual([])
+  })
+
   it('maps a pure rename onto path + previousPath', () => {
     const diff = parseGitDiff([
       'diff --git a/src/old.ts b/src/new.ts',
@@ -419,5 +440,36 @@ describe('real git fixture', () => {
     expect(diff.files.map((file) => file.path)).toEqual(['a.txt'])
     expect(diff.files[0]?.hunks).toHaveLength(1)
     expect(diff.files[0]?.hunks[0]).toMatchObject({ newStart: 1, newLines: 2 })
+  })
+
+  it('keeps a binary file with a non-ASCII name when diffing real commits', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dshrb-forge-local-'))
+    tempDirs.push(root)
+
+    git(root, 'init', '-q')
+    git(root, 'config', 'user.email', 'test@example.com')
+    git(root, 'config', 'user.name', 'Test')
+    const name = '标志.bin'
+    writeFileSync(join(root, name), Buffer.from([0x00, 0x01, 0x02]))
+    git(root, 'add', '--', name)
+    git(root, 'commit', '-q', '-m', 'first')
+    const baseSha = commitSha(git(root, 'rev-parse', 'HEAD'))
+
+    writeFileSync(join(root, name), Buffer.from([0x00, 0x01, 0x03]))
+    git(root, 'add', '--', name)
+    git(root, 'commit', '-q', '-m', 'second')
+    const headSha = commitSha(git(root, 'rev-parse', 'HEAD'))
+
+    const gateway = createLocalGateway({ root }, createLocalDeps(root))
+    const diff = await gateway.fetchDiff({
+      repo: 'local',
+      changeRequestId: '1' as ReviewTarget['changeRequestId'],
+      baseSha,
+      headSha,
+      isFork: false,
+    })
+
+    expect(diff.files.map((file) => file.path)).toEqual([name])
+    expect(diff.files[0]?.binary).toBe(true)
   })
 })

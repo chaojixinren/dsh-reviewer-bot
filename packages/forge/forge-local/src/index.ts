@@ -177,17 +177,56 @@ function stripGitPrefix(path: string, prefix: 'a/' | 'b/'): string {
 }
 
 /**
- * Undoes git's C-style path quoting for the common case (a quoted path with
- * escaped `\"` and `\\`). Octal escapes are not decoded: they cannot appear in
- * the ASCII paths this repo deals with and would only matter for non-UTF-8
- * filenames, which a review dry-run does not target.
+ * Undoes git's C-style path quoting. Git wraps a path in double quotes and
+ * escapes the bytes it cannot print verbatim: `\\` and `\"`, the common control
+ * escapes, and octal `\NNN` for non-ASCII bytes. A UTF-8 filename is escaped
+ * one byte at a time, so the bytes are reassembled before UTF-8 decoding. The
+ * decoded path is validated by `isSafeRelativePath` before it is ever used.
  */
 function unquoteGitPath(raw: string): string {
   const trimmed = raw.trim()
-  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed.slice(1, -1).replace(/\\([\\"])/gu, '$1')
+  if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+    return trimmed
   }
-  return trimmed
+  const body = trimmed.slice(1, -1)
+  const bytes: number[] = []
+  const simpleEscapes: Record<string, number> = {
+    '\\': 0x5c, '"': 0x22, a: 0x07, b: 0x08, t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d,
+  }
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body[i]!
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0))
+      continue
+    }
+    const next = body[i + 1]
+    if (next === undefined) {
+      bytes.push(ch.charCodeAt(0))
+      continue
+    }
+    const simple = simpleEscapes[next]
+    if (simple !== undefined) {
+      bytes.push(simple)
+      i += 1
+      continue
+    }
+    if (next >= '0' && next <= '7') {
+      let octal = ''
+      let digits = 0
+      while (digits < 3 && body[i + 1 + digits] !== undefined
+        && body[i + 1 + digits]! >= '0' && body[i + 1 + digits]! <= '7') {
+        octal += body[i + 1 + digits]!
+        digits += 1
+      }
+      bytes.push(Number.parseInt(octal, 8) & 0xff)
+      i += digits
+      continue
+    }
+    // Unknown escape: keep the backslash literally and let the following
+    // character be consumed as an ordinary byte on the next iteration.
+    bytes.push(ch.charCodeAt(0))
+  }
+  return Buffer.from(bytes).toString('utf8')
 }
 
 function splitFileSections(output: string): readonly string[] {
@@ -203,6 +242,51 @@ function splitFileSections(output: string): readonly string[] {
   }
   if (current !== undefined) sections.push(current.join('\n'))
   return sections
+}
+
+/**
+ * Splits the two path halves of a `diff --git` header. Git emits one of two
+ * shapes:
+ *
+ *   diff --git a/foo b/foo          (unquoted — a plain space is not quoted)
+ *   diff --git "a/foo" "b/foo"      (C-quoted — non-ASCII, quotes, backslashes)
+ *
+ * A quoted half is delimited by its quotes, so a space inside it cannot split
+ * the pair. An unquoted half is split on the first ` b/` that follows the `a/`
+ * half (a path containing the literal substring ` b/` is pathological and out
+ * of scope, matching the ambiguity of git's own unquoted format).
+ */
+function parseDiffGitHeader(header: string): readonly [string, string] | undefined {
+  const prefix = 'diff --git '
+  if (!header.startsWith(prefix)) return undefined
+  const rest = header.slice(prefix.length)
+
+  if (rest.startsWith('"')) {
+    const halves: string[] = []
+    let i = 0
+    while (i < rest.length && halves.length < 2) {
+      while (i < rest.length && rest[i] === ' ') i += 1
+      if (i >= rest.length || rest[i] !== '"') break
+      let j = i + 1
+      while (j < rest.length) {
+        if (rest[j] === '\\' && j + 1 < rest.length) {
+          j += 2
+          continue
+        }
+        if (rest[j] === '"') break
+        j += 1
+      }
+      if (j >= rest.length) return undefined // unterminated quote
+      halves.push(rest.slice(i, j + 1))
+      i = j + 1
+    }
+    if (halves.length !== 2) return undefined
+    return [halves[0]!, halves[1]!]
+  }
+
+  const sep = rest.indexOf(' b/')
+  if (sep < 0) return undefined
+  return [rest.slice(0, sep), rest.slice(sep + 1)]
 }
 
 function parseFileSection(section: string): DiffFile | undefined {
@@ -229,13 +313,12 @@ function parseFileSection(section: string): DiffFile | undefined {
   }
 
   // Binary files and mode-only changes omit `---`/`+++`; fall back to the
-  // `diff --git` header, which carries both paths.
+  // `diff --git` header, which carries both paths (quoted or not).
   if (newPath === undefined && oldPath === undefined) {
-    const header = lines[0] ?? ''
-    const match = /^diff --git a\/(.*?) b\/(.*)$/u.exec(header)
-    if (match !== null) {
-      oldPath = unquoteGitPath(match[1] ?? '')
-      newPath = unquoteGitPath(match[2] ?? '')
+    const parsed = parseDiffGitHeader(lines[0] ?? '')
+    if (parsed !== undefined) {
+      oldPath = stripGitPrefix(unquoteGitPath(parsed[0]), 'a/')
+      newPath = stripGitPrefix(unquoteGitPath(parsed[1]), 'b/')
     }
   }
 
