@@ -11,9 +11,10 @@ import type { Rule } from '@dshrb/rule-registry'
 import { createTrustPolicy } from '@dshrb/trust-policy'
 import type { TrustPolicy } from '@dshrb/trust-policy'
 import {
-  assembleContext, authorize, buildSummary, ingest, report, route, runReview, shardDiff, validate,
+  assembleContext, authorize, buildReplaySnapshot, buildSummary, deriveReplayId, ingest,
+  parseReplaySnapshot, report, route, runReview, shardDiff, SNAPSHOT_VERSION, validate,
 } from '../src/index.ts'
-import type { Config, StageDeps } from '../src/index.ts'
+import type { Config, ReplaySnapshot, StageDeps } from '../src/index.ts'
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -220,6 +221,14 @@ describe('ingest', () => {
     expect(event.actorLogin).toBe('alice')
     expect(event.target.repo).toBe('acme/widgets')
     expect(event.target.isFork).toBe(false)
+  })
+
+  it('honors the driver-provided forge and defaults to github', async () => {
+    const localEvent = await ingest(prPayload({ forge: 'local' }), depsFixture())
+    expect(localEvent.forgeId).toBe('local')
+
+    const githubEvent = await ingest(prPayload(), depsFixture())
+    expect(githubEvent.forgeId).toBe(GITHUB)
   })
 
   it('marks a fork PR as isFork', async () => {
@@ -525,5 +534,98 @@ describe('runReview', () => {
     expect(levelDuringReason).toBe('trusted-read')
     // The disposer returned by activate() restores the pre-run decision.
     expect(policy.level).toBe('none')
+  })
+})
+
+// --- snapshot ---------------------------------------------------------------
+
+describe('snapshot', () => {
+  /** A real BoundedContext built through the deterministic stages. */
+  async function boundedFixture() {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    return assembleContext(request, diffFixture(), depsFixture())
+  }
+
+  it('derives a stable replay id from request + timestamp', () => {
+    const id = deriveReplayId(requestId('evt-1'), 1234)
+    expect(id).toBe(deriveReplayId(requestId('evt-1'), 1234))
+    expect(id).toHaveLength(16)
+    expect(deriveReplayId(requestId('evt-1'), 1235)).not.toBe(id)
+  })
+
+  it('round-trips a snapshot through JSON and rehydrates findings', async () => {
+    const bounded = await boundedFixture()
+    const { findings, discarded } = validate([validProposal()], diffFixture(), bounded.rules)
+    const snapshot = buildReplaySnapshot(bounded, findings, discarded, 'abc123', 1234)
+
+    const parsed = parseReplaySnapshot(JSON.parse(JSON.stringify(snapshot)))
+
+    expect(parsed.version).toBe(SNAPSHOT_VERSION)
+    expect(parsed.replayId).toBe('abc123')
+    expect(parsed.requestId).toBe(bounded.request.requestId)
+    expect(parsed.findings).toEqual(findings)
+    expect(parsed.discarded).toEqual(discarded)
+  })
+
+  it('rejects a snapshot with a missing or non-integer version', () => {
+    expect(() => parseReplaySnapshot({})).toThrow(/positive integer version/)
+    expect(() => parseReplaySnapshot({ version: '1' })).toThrow(/positive integer version/)
+    expect(() => parseReplaySnapshot({ version: 0 })).toThrow(/positive integer version/)
+  })
+
+  it('rejects a snapshot from a future version with an upgrade hint', async () => {
+    const bounded = await boundedFixture()
+    const snapshot = buildReplaySnapshot(bounded, [], [], 'x', 1)
+    const future = { ...JSON.parse(JSON.stringify(snapshot)), version: SNAPSHOT_VERSION + 1 }
+    expect(() => parseReplaySnapshot(future)).toThrow(/newer than this build supports/)
+  })
+
+  it('rejects a finding that fails findingInvariantViolation (empty title)', async () => {
+    const bounded = await boundedFixture()
+    const { findings } = validate([validProposal()], diffFixture(), bounded.rules)
+    const snapshot = buildReplaySnapshot(bounded, findings, [], 'x', 1)
+    const raw = JSON.parse(JSON.stringify(snapshot)) as { findings: Array<Record<string, unknown>> }
+    raw.findings[0] = { ...raw.findings[0], title: '' }
+    expect(() => parseReplaySnapshot(raw)).toThrow(/empty title/)
+  })
+
+  it('rejects a finding with a wrong-typed field before the invariant check', async () => {
+    const bounded = await boundedFixture()
+    const { findings } = validate([validProposal()], diffFixture(), bounded.rules)
+    const snapshot = buildReplaySnapshot(bounded, findings, [], 'x', 1)
+    const raw = JSON.parse(JSON.stringify(snapshot)) as { findings: Array<Record<string, unknown>> }
+    raw.findings[0] = { ...raw.findings[0], title: 42 }
+    expect(() => parseReplaySnapshot(raw)).toThrow(/field 'title' must be a string/)
+  })
+
+  it('writes a snapshot and surfaces its replayId when snapshotReplay is on', async () => {
+    const written: ReplaySnapshot[] = []
+    const deps = depsFixture({
+      runAgent: async () => [validProposal()],
+      writeSnapshot: async (snapshot) => {
+        written.push(snapshot)
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(result.replayId).toBeTruthy()
+    expect(written).toHaveLength(1)
+    expect(written[0]?.version).toBe(SNAPSHOT_VERSION)
+    expect(written[0]?.findings).toHaveLength(1)
+  })
+
+  it('skips the snapshot when snapshotReplay is off', async () => {
+    const written: ReplaySnapshot[] = []
+    const deps = depsFixture({
+      runAgent: async () => [validProposal()],
+      writeSnapshot: async (snapshot) => {
+        written.push(snapshot)
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture({ snapshotReplay: false }))
+    expect(result.verdict.status).toBe('success')
+    expect(result.replayId).toBeUndefined()
+    expect(written).toHaveLength(0)
   })
 })

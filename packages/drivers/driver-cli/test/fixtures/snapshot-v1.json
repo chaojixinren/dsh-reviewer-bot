@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "replayId": "fixture-00000001",
+  "createdAt": 1700000000000,
+  "requestId": "fixture-request",
+  "bounded": {
+    "request": { "requestId": "fixture-request" },
+    "shards": [],
+    "rules": [],
+    "memory": []
+  },
+  "findings": [
+    {
+      "findingId": "f-1",
+      "severity": "major",
+      "title": "Null dereference",
+      "body": "value may be null here",
+      "ruleId": "correctness/null-undefined",
+      "anchor": { "path": "src/index.ts", "line": 12, "side": "right", "anchored": true }
+    },
+    {
+      "findingId": "f-2",
+      "severity": "blocker",
+      "title": "Unchecked array access",
+      "body": "index is not bounds-checked",
+      "ruleId": "correctness/null-undefined",
+      "failureScenario": "index = 5 with array length 3 throws RangeError",
+      "anchor": { "path": "src/index.ts", "line": 20, "side": "right", "anchored": true }
+    }
+  ],
+  "discarded": [
+    { "reason": "missing-title", "rawTitle": "an unqualified proposal" }
+  ]
+}

@@ -7,12 +7,13 @@
  * `reason` stage is non-deterministic, and it is reached through an injectable
  * `runAgent` seam so every other stage stays deterministic in tests.
  */
+import { createHash } from 'node:crypto'
 import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
-import { countBlockers, findingId, isSafeRelativePath, meetsSeverityThreshold } from '@dshrb/review-core'
-import { narrowProposal, requestId, toDiscarded } from '@dshrb/review-core'
+import { countBlockers, findingId, findingInvariantViolation, isSafeRelativePath, meetsSeverityThreshold } from '@dshrb/review-core'
+import { narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, DiscardedProposal, Failure, Finding, NormalizedEvent, Phase,
-  RawProposal, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
+  RawProposal, RequestId, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
   RulePackSummary, Severity,
 } from '@dshrb/review-core'
 import { createAnchorResolver, publishIdempotencyKey } from '@dshrb/forge'
@@ -99,6 +100,12 @@ export interface StageDeps {
   readonly trustPolicy: TrustPolicy
   /** The one non-deterministic stage, injected so tests stay offline. */
   readonly runAgent: (bounded: BoundedContext, signal: AbortSignal) => Promise<readonly RawProposal[]>
+  /**
+   * Persists the replay snapshot. Injected so the runtime stays I/O-free in
+   * tests; the driver supplies a real disk writer. Absent → the snapshot stage
+   * is skipped even when `Config.snapshotReplay` is true.
+   */
+  readonly writeSnapshot?: (snapshot: ReplaySnapshot) => Promise<void>
 }
 
 // --- Shared helpers ---------------------------------------------------------
@@ -238,7 +245,11 @@ export async function ingest(raw: unknown, _deps: StageDeps): Promise<Normalized
   }
 
   const deliveryId = nonEmpty(asString(raw.deliveryId, 'deliveryId'), 'deliveryId')
-  const forge = forgeId('github')
+  // The driver names the forge that produced the event; github is the default
+  // so the Action driver's historical payloads stay valid. forge-local passes
+  // `local`, which is how the runtime stays agnostic between CI and a laptop
+  // (docs/06-forge-abstraction.md: forge-local is just another provider).
+  const forge = raw.forge === undefined ? forgeId('github') : forgeId(asString(raw.forge, 'forge'))
 
   // issue_comment → comment. The comment payload carries no shas, so the driver
   // enriches it with a top-level `pull_request` object before calling in; the
@@ -638,6 +649,234 @@ export function report(partial: Partial<ReviewResult>, failure?: Failure): Revie
   }
 }
 
+// --- Snapshot ---------------------------------------------------------------
+
+/**
+ * The replay snapshot schema version, versioned independently of result-json
+ * (docs/07-data-contracts.md line 179). Bump only when a field is removed or
+ * its meaning changes; adding an optional field keeps the version. Old
+ * snapshots must remain readable by new builds, so `parseReplaySnapshot`
+ * decodes by version instead of assuming the current shape.
+ */
+export const SNAPSHOT_VERSION = 1
+
+/**
+ * A snapshot holds the whole bounded context — diff shards, rule set, memory
+ * fragments — and therefore contains source code. It stays on the local disk
+ * by default; remote archiving is a real private-code egress path and must be
+ * configured explicitly (docs/08-deployment-modes.md, driver-cli).
+ */
+export interface ReplaySnapshot {
+  readonly version: number
+  /** Stable id for `dshrb replay <id>`, derived from request + timestamp. */
+  readonly replayId: string
+  readonly createdAt: number
+  readonly requestId: string
+  readonly bounded: BoundedContext
+  readonly findings: readonly Finding[]
+  readonly discarded: readonly DiscardedProposal[]
+}
+
+/** A snapshot read/write failure: malformed data, a newer version, or a finding that fails invariants. */
+export class SnapshotError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SnapshotError'
+  }
+}
+
+/**
+ * Deterministic snapshot id: the same request at the same millisecond yields
+ * the same id, so tests are stable and an identical rerun overwrites rather
+ * than forks the archive.
+ */
+export function deriveReplayId(requestId: RequestId, createdAt: number): string {
+  return createHash('sha256').update(`${requestId}\u0000${String(createdAt)}`, 'utf8').digest('hex').slice(0, 16)
+}
+
+/** Assembles the serializable snapshot from the pieces the pipeline holds. */
+export function buildReplaySnapshot(
+  bounded: BoundedContext,
+  findings: readonly Finding[],
+  discarded: readonly DiscardedProposal[],
+  replayId: string,
+  createdAt: number,
+): ReplaySnapshot {
+  return {
+    version: SNAPSHOT_VERSION,
+    replayId,
+    createdAt,
+    requestId: bounded.request.requestId,
+    bounded,
+    findings,
+    discarded,
+  }
+}
+
+function snapshotString(record: Record<string, unknown>, field: string): string {
+  const value = record[field]
+  if (typeof value !== 'string') {
+    throw new SnapshotError(`snapshot field '${field}' must be a string`)
+  }
+  return value
+}
+
+function snapshotOptionalString(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') {
+    throw new SnapshotError(`snapshot field '${field}' must be a string`)
+  }
+  return value
+}
+
+/**
+ * Rehydrates a single `Finding` from snapshot JSON. The finding is checked
+ * structurally first — so `findingInvariantViolation`'s `.trim()` calls cannot
+ * throw on a wrong type — and then passed through `findingInvariantViolation`,
+ * the documented net for every route into a `Finding` other than
+ * `narrowProposal` (docs/07 line 81). A snapshot failing either is corrupt and
+ * is rejected rather than silently replayed.
+ */
+function rehydrateFinding(raw: unknown): Finding {
+  if (!isRecord(raw)) {
+    throw new SnapshotError('snapshot finding must be an object')
+  }
+  snapshotString(raw, 'findingId')
+  snapshotString(raw, 'title')
+  snapshotString(raw, 'body')
+  snapshotOptionalString(raw, 'failureScenario')
+
+  const ruleRaw = snapshotOptionalString(raw, 'ruleId')
+  if (ruleRaw !== undefined && ruleRaw.trim() === '') {
+    throw new SnapshotError("snapshot finding field 'ruleId' must not be empty")
+  }
+
+  const anchorRaw = raw.anchor
+  if (!isRecord(anchorRaw)) {
+    throw new SnapshotError("snapshot finding field 'anchor' must be an object")
+  }
+  snapshotString(anchorRaw, 'path')
+  snapshotOptionalString(anchorRaw, 'fallbackReason')
+  const line = anchorRaw.line
+  if (typeof line !== 'number' || !Number.isInteger(line) || line <= 0) {
+    throw new SnapshotError('snapshot finding anchor line must be a positive integer')
+  }
+  if (anchorRaw.side !== 'left' && anchorRaw.side !== 'right') {
+    throw new SnapshotError("snapshot finding anchor side must be 'left' or 'right'")
+  }
+  if (typeof anchorRaw.anchored !== 'boolean') {
+    throw new SnapshotError('snapshot finding anchor.anchored must be a boolean')
+  }
+
+  const patchRaw = raw.suggestedPatch
+  if (patchRaw !== undefined) {
+    if (!isRecord(patchRaw) || typeof patchRaw.path !== 'string' || typeof patchRaw.diff !== 'string') {
+      throw new SnapshotError('snapshot finding suggestedPatch must be a { path, diff } object')
+    }
+  }
+
+  const candidate = raw as unknown as Finding
+  const violation = findingInvariantViolation(candidate)
+  if (violation !== undefined) {
+    throw new SnapshotError(`snapshot finding fails invariants: ${violation}`)
+  }
+
+  // Re-brand the identifiers so the value is a Finding at the type level, not
+  // merely a Finding-shaped object. findingInvariantViolation has already
+  // confirmed `findingId` is non-empty, so the constructor cannot throw.
+  return {
+    ...candidate,
+    findingId: findingId(candidate.findingId),
+    ...(ruleRaw === undefined ? {} : { ruleId: ruleId(ruleRaw) }),
+  }
+}
+
+function rehydrateFindings(raw: unknown): readonly Finding[] {
+  if (!Array.isArray(raw)) {
+    throw new SnapshotError("snapshot field 'findings' must be an array")
+  }
+  return raw.map(rehydrateFinding)
+}
+
+function rehydrateDiscarded(raw: unknown): readonly DiscardedProposal[] {
+  if (!Array.isArray(raw)) {
+    throw new SnapshotError("snapshot field 'discarded' must be an array")
+  }
+  return raw.map((entry) => {
+    if (!isRecord(entry)) {
+      throw new SnapshotError('snapshot discarded entry must be an object')
+    }
+    return { reason: snapshotString(entry, 'reason'), rawTitle: snapshotString(entry, 'rawTitle') }
+  })
+}
+
+/**
+ * Light structural validation of the bounded context. Only `findings` are
+ * re-validated for publication (`rehydrateFinding`); the bounded context is
+ * preserved so a later `dshrb replay` can re-run the agent against a different
+ * rule set or model, and is therefore checked just enough to be safely held.
+ */
+function rehydrateBounded(raw: unknown): BoundedContext {
+  if (!isRecord(raw)) {
+    throw new SnapshotError("snapshot field 'bounded' must be an object")
+  }
+  if (!isRecord(raw.request) || typeof raw.request.requestId !== 'string') {
+    throw new SnapshotError('snapshot bounded.request must carry a requestId')
+  }
+  if (!Array.isArray(raw.shards)) {
+    throw new SnapshotError("snapshot field 'bounded.shards' must be an array")
+  }
+  if (!Array.isArray(raw.rules)) {
+    throw new SnapshotError("snapshot field 'bounded.rules' must be an array")
+  }
+  if (!Array.isArray(raw.memory)) {
+    throw new SnapshotError("snapshot field 'bounded.memory' must be an array")
+  }
+  return raw as unknown as BoundedContext
+}
+
+/**
+ * Parses and validates snapshot JSON produced by `buildReplaySnapshot`. The
+ * version gate is what makes old snapshots readable by new builds: a newer
+ * build adds a migration arm for each older version instead of assuming the
+ * current shape, and a snapshot from a future build is rejected with a clear
+ * "upgrade" message rather than misread.
+ */
+export function parseReplaySnapshot(raw: unknown): ReplaySnapshot {
+  if (!isRecord(raw)) {
+    throw new SnapshotError('snapshot must be an object')
+  }
+  const version = raw.version
+  if (typeof version !== 'number' || !Number.isInteger(version) || version <= 0) {
+    throw new SnapshotError('snapshot must carry a positive integer version')
+  }
+  if (version > SNAPSHOT_VERSION) {
+    throw new SnapshotError(
+      `snapshot version ${version} is newer than this build supports (${SNAPSHOT_VERSION}); upgrade dshrb to replay it`,
+    )
+  }
+  // Version-specific decoding/migration lives here. v1 is the first version,
+  // so there is a single arm; when v2 ships it adds `case 1` and keeps reading
+  // v1 fixtures — the "old snapshots stay readable" guarantee (docs/07 line 179).
+  if (version < SNAPSHOT_VERSION) {
+    throw new SnapshotError(`snapshot version ${version} is no longer readable`)
+  }
+  const createdAt = raw.createdAt
+  if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+    throw new SnapshotError("snapshot field 'createdAt' must be a number")
+  }
+  return {
+    version,
+    replayId: snapshotString(raw, 'replayId'),
+    createdAt,
+    requestId: snapshotString(raw, 'requestId'),
+    bounded: rehydrateBounded(raw.bounded),
+    findings: rehydrateFindings(raw.findings),
+    discarded: rehydrateDiscarded(raw.discarded),
+  }
+}
+
 // --- Orchestration ----------------------------------------------------------
 
 function toFailure(error: unknown, phase: Phase): Failure {
@@ -673,9 +912,9 @@ function toFailure(error: unknown, phase: Phase): Failure {
 
 /**
  * Runs the full pipeline under the watchdog: `ingest → route → authorize →
- * assembleContext → reason → validate → publish → report`. A timeout aborts the
- * in-flight stage and still reaches `report`, so a terminal `ReviewResult` is
- * always produced.
+ * assembleContext → reason → validate → snapshot → publish → report`. A timeout
+ * aborts the in-flight stage and still reaches `report`, so a terminal
+ * `ReviewResult` is always produced.
  */
 export async function runReview(
   raw: unknown, deps: StageDeps, config: Config,
@@ -697,6 +936,7 @@ export async function runReview(
   let intent: ReviewIntent | undefined
   let request: ReviewRequest | undefined
   let deactivateTrust: (() => void) | undefined
+  let replayId: string | undefined
 
   try {
     event = await ingest(raw, deps)
@@ -747,6 +987,19 @@ export async function runReview(
     phase = 'validate'
     const validated = validate(proposals, diff, bounded.rules)
 
+    // Persist the bounded context + findings before publishing, so a publish
+    // failure still leaves a replayable snapshot. The writer is injected (disk
+    // lives in the driver); without one, or with snapshotReplay off, this is a
+    // no-op. `replayId` is threaded into the result so `dshrb replay <id>` can
+    // find the snapshot.
+    phase = 'snapshot'
+    if (config.snapshotReplay && deps.writeSnapshot !== undefined) {
+      const createdAt = deps.now()
+      const id = deriveReplayId(request.requestId, createdAt)
+      await deps.writeSnapshot(buildReplaySnapshot(bounded, validated.findings, validated.discarded, id, createdAt))
+      replayId = id
+    }
+
     phase = 'publish'
     const published = await publish(request, validated.findings, deps)
 
@@ -773,6 +1026,7 @@ export async function runReview(
         durationMs: deps.now() - startedAt,
       },
       ...(published.commentId === undefined ? {} : { stickyCommentId: published.commentId }),
+      ...(replayId === undefined ? {} : { replayId }),
     })
   } catch (error) {
     const failure: Failure = timedOut
@@ -789,6 +1043,7 @@ export async function runReview(
       ...(event === undefined ? {} : { requestId: requestId(event.deliveryId), forgeId: event.forgeId }),
       ...(intent === undefined ? {} : { operation: intent }),
       ...(request === undefined ? {} : { trust: request.trust, capabilities: request.capabilities }),
+      ...(replayId === undefined ? {} : { replayId }),
       verdict: {
         status: 'failed',
         findingsCount: 0,

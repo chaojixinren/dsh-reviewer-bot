@@ -147,6 +147,7 @@ export type Phase =
   | 'context'
   | 'reason'
   | 'validate'
+  | 'snapshot'
   | 'publish'
   | 'mutate'
   | 'report'

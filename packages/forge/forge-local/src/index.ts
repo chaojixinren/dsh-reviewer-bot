@@ -58,10 +58,18 @@ export const COMMENT_PREFIX = '[dshrb:local]'
 export interface Config {
   /** Absolute path to the local git working tree. */
   root: string
+  /**
+   * When true, `fetchDiff` diffs the working tree (tracked staged + unstaged
+   * changes) against `baseSha` with a single-argument `git diff`, and the
+   * `headSha` is ignored. This is how `dshrb review --local` reviews uncommitted
+   * changes — there is no head commit to diff, so `headSha` cannot express it.
+   */
+  workingTree: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
   root: Schema.string().default(process.cwd()),
+  workingTree: Schema.boolean().default(false),
 })
 
 /** Runs `git <args>` in `root` and resolves stdout; rejects on non-zero exit. */
@@ -373,10 +381,10 @@ export function createLocalGateway(config: Config, deps: LocalDeps): LocalGatewa
 
   async function fetchDiff(target: ReviewTarget): Promise<UnifiedDiff> {
     const base = assertSha(target.baseSha)
-    const head = assertSha(target.headSha)
-    const output = await deps.git([
-      'diff', '--no-color', '--no-ext-diff', '--find-renames', '--unified=3', base, head,
-    ])
+    const args = config.workingTree
+      ? ['diff', '--no-color', '--no-ext-diff', '--find-renames', '--unified=3', base]
+      : ['diff', '--no-color', '--no-ext-diff', '--find-renames', '--unified=3', base, assertSha(target.headSha)]
+    const output = await deps.git(args)
     return parseGitDiff(output)
   }
 

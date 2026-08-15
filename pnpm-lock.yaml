@@ -189,12 +189,27 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.1
         version: 3.18.1
+      '@dshrb/forge':
+        specifier: workspace:*
+        version: link:../../core/forge
+      '@dshrb/forge-local':
+        specifier: workspace:*
+        version: link:../../forge/forge-local
       '@dshrb/review-core':
         specifier: workspace:*
         version: link:../../core/review-core
       '@dshrb/review-runtime':
         specifier: workspace:*
         version: link:../../core/review-runtime
+      '@dshrb/rule-registry':
+        specifier: workspace:*
+        version: link:../../core/rule-registry
+      '@dshrb/rules-baseline':
+        specifier: workspace:*
+        version: link:../../rules/rules-baseline
+      '@dshrb/trust-policy':
+        specifier: workspace:*
+        version: link:../../core/trust-policy
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.1

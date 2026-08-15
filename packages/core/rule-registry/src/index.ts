@@ -38,11 +38,24 @@ export interface RulePack {
   readonly rules: readonly Rule[]
 }
 
+/** A matched rule plus the pack its winning registration came from. */
+export interface MatchedRule {
+  readonly rule: Rule
+  /** The pack id whose registration won (most severe, first-seen on a tie). */
+  readonly packId: string
+}
+
 export interface ReviewRuleRegistry {
   /** Effect-based: the returned disposer unregisters the pack. */
   register(pack: RulePack): () => void
   /** Rules whose globs match `path`, severity-normalized and deduped. */
   match(path: string): readonly Rule[]
+  /**
+   * Like `match`, but each entry carries the pack its rule came from, so
+   * `dshrb rules --explain <path>` can name the source pack. The winning rule
+   * is the same one `match` returns; this only adds provenance.
+   */
+  matchWithPacks(path: string): readonly MatchedRule[]
   /** All active packs with versions, for the auditable `rules` result field. */
   packs(): readonly Pick<RulePack, 'id' | 'version' | 'title'>[]
 }
@@ -104,27 +117,32 @@ export function createReviewRuleRegistry(config: Config): ReviewRuleRegistry {
     }
   }
 
-  function match(path: string): readonly Rule[] {
-    const byId = new Map<string, Rule>()
+  function matchWithPacks(path: string): readonly MatchedRule[] {
+    const byId = new Map<string, MatchedRule>()
     for (const pack of packs.values()) {
       for (const rule of pack.rules) {
         if (disabled.has(rule.id) || !appliesTo(rule, path)) continue
         const current = byId.get(rule.id)
-        if (current === undefined || severityRank(rule.severity) < severityRank(current.severity)) {
+        if (current === undefined || severityRank(rule.severity) < severityRank(current.rule.severity)) {
           // `Map.set` on an existing key updates the value without moving it,
-          // preserving the first-seen position while the severity is replaced.
-          byId.set(rule.id, rule)
+          // preserving the first-seen position while the winning registration
+          // (and its source pack) is replaced by the more severe one.
+          byId.set(rule.id, { rule, packId: pack.id })
         }
       }
     }
     return [...byId.values()]
   }
 
+  function match(path: string): readonly Rule[] {
+    return matchWithPacks(path).map((entry) => entry.rule)
+  }
+
   function listPacks(): readonly Pick<RulePack, 'id' | 'version' | 'title'>[] {
     return [...packs.values()].map(({ id, version, title }) => ({ id, version, title }))
   }
 
-  return { register, match, packs: listPacks }
+  return { register, match, matchWithPacks, packs: listPacks }
 }
 
 function appliesTo(rule: Rule, path: string): boolean {

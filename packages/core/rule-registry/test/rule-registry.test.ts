@@ -241,6 +241,75 @@ describe('packs()', () => {
   })
 })
 
+describe('matchWithPacks', () => {
+  it('annotates each matched rule with its source pack', () => {
+    const registry = createReviewRuleRegistry(configFixture())
+    registry.register(packFixture({
+      id: 'pack-a',
+      rules: [ruleFixture({ id: ruleId('from-a') })],
+    }))
+    registry.register(packFixture({
+      id: 'pack-b',
+      rules: [ruleFixture({ id: ruleId('from-b') })],
+    }))
+
+    expect(registry.matchWithPacks('src/index.ts')).toEqual([
+      { rule: ruleFixture({ id: ruleId('from-a') }), packId: 'pack-a' },
+      { rule: ruleFixture({ id: ruleId('from-b') }), packId: 'pack-b' },
+    ])
+  })
+
+  it('names the pack whose registration won on a severity tie', () => {
+    const registry = createReviewRuleRegistry(configFixture())
+    registry.register(packFixture({
+      id: 'pack-a',
+      rules: [ruleFixture({ id: ruleId('shared'), guidance: 'first' })],
+    }))
+    registry.register(packFixture({
+      id: 'pack-b',
+      rules: [ruleFixture({ id: ruleId('shared'), guidance: 'second' })],
+    }))
+
+    const [entry] = registry.matchWithPacks('src/index.ts')
+    expect(entry?.rule.guidance).toBe('first')
+    expect(entry?.packId).toBe('pack-a')
+  })
+
+  it('switches the source pack when a later registration upgrades severity', () => {
+    const registry = createReviewRuleRegistry(configFixture())
+    registry.register(packFixture({
+      id: 'pack-a',
+      rules: [ruleFixture({ id: ruleId('shared'), severity: 'minor' })],
+    }))
+    registry.register(packFixture({
+      id: 'pack-b',
+      rules: [ruleFixture({ id: ruleId('shared'), severity: 'blocker' })],
+    }))
+
+    const [entry] = registry.matchWithPacks('src/index.ts')
+    expect(entry?.rule.severity).toBe('blocker')
+    expect(entry?.packId).toBe('pack-b')
+  })
+
+  it('agrees with match() on rule identity and order', () => {
+    const registry = createReviewRuleRegistry(configFixture())
+    registry.register(packFixture({
+      id: 'pack-a',
+      rules: [
+        ruleFixture({ id: ruleId('upgraded'), severity: 'minor' }),
+        ruleFixture({ id: ruleId('anchor'), severity: 'major' }),
+      ],
+    }))
+    registry.register(packFixture({
+      id: 'pack-b',
+      rules: [ruleFixture({ id: ruleId('upgraded'), severity: 'blocker' })],
+    }))
+
+    expect(registry.matchWithPacks('src/index.ts').map((entry) => entry.rule))
+      .toEqual(registry.match('src/index.ts'))
+  })
+})
+
 describe('T13: declarative data', () => {
   it('has no callable surface on Rule, so a pack cannot register code', () => {
     // Compile-time only (enforced by `tsc -p tsconfig.test.json`): a third-party
