@@ -255,7 +255,7 @@ describe('decideToolCall', () => {
       .toEqual({ kind: 'allow' })
   })
 
-  it('denies a repo-file read at untrusted and names the fork', () => {
+  it('denies a repo-file read at untrusted', () => {
     const decision = decideToolCall(input({ isFork: true, permission: 'admin' }), 'read_repo_file')
     expect(decision?.kind).toBe('deny')
     if (decision?.kind !== 'deny') throw new Error('expected deny')
@@ -272,12 +272,14 @@ describe('decideToolCall', () => {
       .toEqual({ kind: 'allow' })
   })
 
-  it('asks rather than denies when only the repository opt-in is missing', () => {
+  it('denies a write tool when only the repository opt-in is missing', () => {
     const decision = decideToolCall(input({ permission: 'maintain', intent: 'fix', allowWrite: false }), 'propose_patch')
-    expect(decision?.kind).toBe('ask')
+    expect(decision?.kind).toBe('deny')
+    if (decision?.kind !== 'deny') throw new Error('expected deny')
+    expect(decision.reason).toMatch(/allowWrite/)
   })
 
-  it('never asks for a fork: no approval can grant a fork write access', () => {
+  it('denies a fork write even when only the opt-in is missing', () => {
     const decision = decideToolCall(
       input({ isFork: true, permission: 'admin', intent: 'fix', allowWrite: false }),
       'propose_patch',
@@ -358,7 +360,7 @@ describe('createTrustPolicy', () => {
     // most; there is no parameter through which it can set allowWrite.
     expect(policy.level).toBe('none')
     expect(policy.input?.allowWrite).toBe(false)
-    expect(policy.decide('propose_patch')?.kind).toBe('ask')
+    expect(policy.decide('propose_patch')?.kind).toBe('deny')
   })
 
   it('gives a fork no write path even under allowWrite', () => {

@@ -35,7 +35,7 @@
 
 ```
 ctx.tools.register()      注册模型可见的评审工具
-ctx.on('tools/pre-execute') 信任门禁（allow / deny / ask）
+ctx.on('tools/pre-execute') 信任门禁（allow / deny）
 ctx.tools.guard()         单调终局拒绝（写模式硬红线）
 ctx.on('session/event')   进度上报（sticky comment 三阶段）
 ctx.systemPrompt.section() 注入评审准则与仓库约定

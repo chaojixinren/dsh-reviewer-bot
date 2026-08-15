@@ -167,7 +167,7 @@ export function explainDenialReason(input: TrustInput): string | undefined {
   return `intent: '${input.intent}' requires '${minimum}', but the resolved trust is '${trust}'`
 }
 
-/** Explains a `none` outcome in terms of the specific missing condition. */
+/** Explains an insufficient-trust outcome in terms of the specific missing condition. */
 export function explainDenial(input: TrustInput): string {
   return explainDenialReason(input) ?? `intent '${input.intent}' is authorized at '${resolveTrust(input)}'`
 }
@@ -189,18 +189,21 @@ export type ToolRequirement = keyof Capabilities | 'always'
  * the dependency direction is the other way round (its tools are gated here).
  * A tool absent from this table is not ours: the waterfall abstains and calls
  * `next()` rather than deciding for another plugin.
+ *
+ * TODO(M2): once `@dshrb/tool-review` exports `TOOL_NAMES`, add a CI test
+ * asserting `TOOL_NAMES ⊆ GOVERNED_TOOLS`. A tool-review tool missing from
+ * this table would be hidden by `restrictScope`'s allow-list, but the
+ * waterfall would abstain (fail open) — the parity test only covers tools
+ * that ARE classified here.
  */
 export const TOOL_REQUIREMENTS: Readonly<Record<string, ToolRequirement>> = Object.freeze({
   read_diff_shard: 'readDiff',
   list_applicable_rules: 'always',
-  report_finding: 'always',
+  report_finding: 'publishComments',
   read_repo_file: 'readRepoFiles',
   read_check_log: 'readCheckLogs',
   propose_patch: 'proposePatches',
 })
-
-/** Requirements that only a write-mode trust level can satisfy. */
-const WRITE_REQUIREMENTS: readonly ToolRequirement[] = ['proposePatches', 'commitPatches']
 
 /** Tool names this policy governs, in table order. */
 export const GOVERNED_TOOLS: readonly string[] = Object.freeze(Object.keys(TOOL_REQUIREMENTS))
@@ -233,10 +236,11 @@ export function toolRestrictionFor(trust: TrustLevel): ToolRestriction {
  * The pre-execute decision for one call, or `undefined` to abstain because the
  * tool is not ours.
  *
- * `ask` is returned only where an approval service can legitimately resolve the
- * gap: the actor holds write permission and the intent is a write intent, but
- * the repository has not set `allowWrite`. Every other shortfall is a `deny` —
- * no approval prompt can grant a fork write access.
+ * Every shortfall is a `deny`, never an `ask`: `allowWrite` is repository
+ * configuration held by the maintainer, not something a per-call approval
+ * prompt can grant. The message names the missing condition via
+ * `explainDenialReason`, so the user learns which of fork / permission /
+ * allowWrite / intent to change.
  */
 export function decideToolCall(input: TrustInput, toolName: string): PreToolDecision | undefined {
   const requirement = TOOL_REQUIREMENTS[toolName]
@@ -244,16 +248,6 @@ export function decideToolCall(input: TrustInput, toolName: string): PreToolDeci
 
   const trust = resolveTrust(input)
   if (grants(trust, requirement)) return { kind: 'allow' }
-
-  if (
-    WRITE_REQUIREMENTS.includes(requirement)
-    && !input.isFork
-    && actorMayWrite(input.permission)
-    && intentNeedsWrite(input.intent)
-    && !input.allowWrite
-  ) {
-    return { kind: 'ask', reason: `${toolName} needs write mode; the repository has not enabled allow-write` }
-  }
 
   const detail = explainDenialReason(input)
     ?? `trust '${trust}' does not grant '${requirement}'`
