@@ -95,7 +95,7 @@ flowchart TB
     RJ --> S4["isolation<br/>沙箱后端与画像"]
     RJ --> S5["findings<br/>结构化列表 + 丢弃统计"]
     RJ --> S6["publication<br/>发布成功/降级/失败数"]
-    RJ --> S7["validation<br/>校验命令与退出码"]
+    RJ --> S7["validation<br/>校验命令、退出码、执行完整度、拒绝特征串、完整日志"]
     RJ --> S8["write<br/>commit sha / PR url"]
     RJ --> S9["rules<br/>生效规则包与版本"]
     RJ --> S10["failure?<br/>code/phase/title/message/<br/>guidance/retryable"]
@@ -103,6 +103,8 @@ flowchart TB
 ```
 
 信封中三个字段是本项目特有的：`findings`（结构化输出而非仅计数）、`rules`（可审计的生效规则集）、`replay`（B4 本地重放的入口）。
+
+`validation` 字段自 M3 起如实携带校验子进程的证据，落实「被消费而非静默丢弃」的硬约束（docs/03-review-pipeline.md 写模式时序）：`enforcement`（每条命令的沙箱执行完整度 `full`/`partial`，来自 `ConfinedArgv.enforcement`）、`denials`（匹配到的拒绝特征串，来自 `ConfinedArgv.denialSignatures`）、`log`（完整合并输出，校验失败时回帖到 change request）。
 
 **安全提醒**：`result-json` 里模型派生的字符串仍是不可信数据。下游 workflow **不得**把它们直接拼进 shell 命令。文档里必须给出正确用法：
 

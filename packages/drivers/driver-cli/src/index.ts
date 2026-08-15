@@ -419,6 +419,8 @@ export async function reviewLocal(deps: ReviewLocalDeps): Promise<ReviewResult> 
     snapshotReplay: deps.writeSnapshot !== undefined,
     allowWrite: false,
     minSeverity: 'minor',
+    testCommands: [],
+    validationEnv: [],
   })
 }
 
