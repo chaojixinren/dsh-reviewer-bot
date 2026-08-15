@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M0 完成、进入 M1（只读评审闭环）** 阶段：设计文档已冻结，`review-core` 领域类型与 `forge` 接口/注册表已落地，评审管线、信任判定、工具与 driver 等业务代码仍在实现。
+项目处于 **M1（只读评审闭环）进行中** 阶段：设计文档已冻结，领域类型（`review-core`）、forge 接口/注册表 + 锚定器、信任判定（`trust-policy`）、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 校验链已落地，评审管线其余阶段、进度上报、规则、GitLab provider 与 driver 外壳仍在实现。
 
 动手前请先读：
 
