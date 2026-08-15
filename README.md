@@ -1,6 +1,19 @@
+<p align="center">
+  <img src="./assets/icon.svg" alt="DSH Reviewer Bot" width="120" />
+</p>
+
 # DSH Reviewer Bot
 
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
+
+<p align="center">
+  <a href="https://github.com/chaojixinren/dsh-reviewer-bot/actions/workflows/ci.yml"><img src="https://github.com/chaojixinren/dsh-reviewer-bot/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="#许可"><img src="https://img.shields.io/badge/License-MIT-2ea44f" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/Node-22.19%2B%20%7C%2024%2B-339933" alt="Node 22.19+ | 24+" />
+  <img src="https://img.shields.io/badge/TypeScript-5.9.2-3178c6" alt="TypeScript 5.9.2" />
+  <img src="https://img.shields.io/badge/pnpm-11.7.0-f69220" alt="pnpm 11.7.0" />
+  <img src="https://img.shields.io/badge/milestone-M2%20完成-1D76DB" alt="milestone: M2" />
+</p>
 
 > **当前状态：M2（规则与本地化）已完成。** M1 只读评审闭环已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器、`trust-policy` 四级判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`），配 355 例单测（14 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M2 已全部交付：`rule-registry`（规则包注册表）、`rules-baseline`（基线规则包）、`forge-local`（本地 git provider，离线 dry-run）、`driver-cli`（`review --local` / `replay` / `rules --explain` / `doctor`）。M3 写模式与 M4 生态（GitLab provider、webhook 等）尚未开始。
 
@@ -87,6 +100,10 @@ examples/                workflow 模板
 - 完整威胁清单见 [信任模型](./docs/04-trust-model.md)
 
 发现安全问题请私下报告，勿开公开 issue。
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=chaojixinren/dsh-reviewer-bot&type=Date)](https://star-history.com/#chaojixinren/dsh-reviewer-bot&Date)
 
 ## 许可
 
