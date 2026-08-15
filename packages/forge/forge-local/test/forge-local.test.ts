@@ -20,7 +20,7 @@ import type { Config, FileReader, GitRunner, LineWriter } from '../src/index.ts'
  */
 
 function config(overrides: Partial<Config> = {}): Config {
-  return { root: '/repo', ...overrides }
+  return { root: '/repo', workingTree: false, ...overrides }
 }
 
 interface StubDeps {
@@ -104,10 +104,10 @@ describe('capability advertisement', () => {
     expect(gateway.capabilities).toEqual(CAPABILITIES)
   })
 
-  it('needs no token: its only config is the working-tree root', () => {
+  it('needs no token: its config is the working-tree root and diff mode', () => {
     // The whole point of forge-local is that `review --local` runs with no
     // credential and no network. There is deliberately no token field here.
-    expect(Object.keys(config())).toEqual(['root'])
+    expect(Object.keys(config())).toEqual(['root', 'workingTree'])
   })
 
   it('refuses M3 mutations explicitly instead of reporting a success it did not perform', async () => {
@@ -307,6 +307,29 @@ describe('fetchDiff', () => {
     ])
   })
 
+  it('diffs the working tree against the base when workingTree is set', async () => {
+    const deps = stubDeps()
+    deps.gitOutput = [
+      'diff --git a/a.ts b/a.ts',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -1 +1 @@',
+      '-x',
+      '+y',
+    ].join('\n')
+    const gateway = createLocalGateway(config({ workingTree: true }), deps)
+
+    const t = target()
+    const diff = await gateway.fetchDiff(t)
+
+    expect(diff.files.map((file) => file.path)).toEqual(['a.ts'])
+    // A single-argument `git diff` diffs the working tree against base, so the
+    // head SHA is dropped — uncommitted changes have no commit to name.
+    expect(deps.gitCalls[0]).toEqual([
+      'diff', '--no-color', '--no-ext-diff', '--find-renames', '--unified=3', t.baseSha,
+    ])
+  })
+
   it('rejects a malformed SHA before invoking git', async () => {
     const deps = stubDeps()
     const gateway = createLocalGateway(config(), deps)
@@ -428,7 +451,7 @@ describe('real git fixture', () => {
     git(root, 'commit', '-q', '-m', 'second')
     const headSha = commitSha(git(root, 'rev-parse', 'HEAD'))
 
-    const gateway = createLocalGateway({ root }, createLocalDeps(root))
+    const gateway = createLocalGateway({ root, workingTree: false }, createLocalDeps(root))
     const diff = await gateway.fetchDiff({
       repo: 'local',
       changeRequestId: '1' as ReviewTarget['changeRequestId'],
@@ -460,7 +483,7 @@ describe('real git fixture', () => {
     git(root, 'commit', '-q', '-m', 'second')
     const headSha = commitSha(git(root, 'rev-parse', 'HEAD'))
 
-    const gateway = createLocalGateway({ root }, createLocalDeps(root))
+    const gateway = createLocalGateway({ root, workingTree: false }, createLocalDeps(root))
     const diff = await gateway.fetchDiff({
       repo: 'local',
       changeRequestId: '1' as ReviewTarget['changeRequestId'],

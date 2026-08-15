@@ -56,7 +56,7 @@ const PACKAGES = [
   ['rules/rules-baseline', 'rules-baseline', 'Baseline review rule pack: correctness, security, maintainability.', ['review-core', 'rule-registry']],
   ['drivers/driver-action', 'driver-action', 'GitHub Action driver shell.', ['review-core', 'review-runtime', 'forge-github']],
   ['drivers/driver-webhook', 'driver-webhook', 'Long-running webhook daemon driver shell.', ['review-core', 'review-runtime']],
-  ['drivers/driver-cli', 'driver-cli', 'Local dry-run, replay, and rule debugging CLI.', ['review-core', 'review-runtime']],
+  ['drivers/driver-cli', 'driver-cli', 'Local dry-run, replay, and rule debugging CLI.', ['review-core', 'review-runtime', 'forge', 'forge-local', 'rule-registry', 'rules-baseline', 'trust-policy']],
 ]
 
 const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
