@@ -2,7 +2,7 @@
 
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
 
-> **当前状态：设计阶段。** 脚手架与设计文档已完成，业务代码尚未实现。所有 `apply()` 目前抛 `not implemented`。
+> **当前状态：M0 脚手架完成，进入 M1（只读评审闭环）。** 设计文档、领域类型（`review-core`）、forge 接口 + 注册表（含单测）已落地，`signature-probe` 在真实容器里验证扩展点签名（9/9）。评审管线、信任判定、工具与 driver 等业务代码仍未实现——9 个插件的 `apply()` 抛 `not implemented`（forge / signature-probe 除外）。
 
 ## 为什么不是又一个 CI Action
 

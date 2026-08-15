@@ -151,8 +151,8 @@ flowchart LR
 
 ## 当前状态
 
-M0 进行中：设计文档已完成，脚手架目录已建立，业务代码未实现（按需求刻意保留）。
+M0 已完成：设计文档、workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test）均已就位，上游版本精确锁定（rc.6 / cordis 4.0.1 / schemastery 3.18.1）。
 
-已打通：workspace 与构建链（`pnpm run check` 全绿：typecheck + lint + test），上游版本锁定，`@dshrb/signature-probe` 在真实容器里验证扩展点签名（7/7）。
+已实现：`review-core` 领域类型（M1 第一项）与 `forge` 接口 + 注册表（含 3 个单测）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名（9/9）。
 
-未实现（刻意）：9 个 `apply()` 抛 `not implemented`，32 处 TODO（M1:12 / M2:6 / M3:2 / M4:12），0 个测试文件。下一步进入 M1。
+未实现（刻意）：9 个插件 `apply()` 抛 `not implemented`（评审管线、信任判定、工具、规则、GitHub/GitLab provider、driver-webhook），driver-action / driver-cli 入口同样未实现；32 处 TODO（M1:12 / M2:6 / M3:2 / M4:12），1 个测试文件（forge 注册表 3 用例）。下一步进入 M1 只读评审闭环。
