@@ -414,7 +414,9 @@ export function isSafeRelativePath(path: string): boolean {
   if (path === '' || path.includes('\0')) {
     return false
   }
-  if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(path)) {
+  // A drive prefix is any single letter + colon: `C:\x`, `C:/x`, and also the
+  // drive-relative `C:x` (no slash), which a `[\\/]`-suffixed pattern misses.
+  if (path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:/.test(path)) {
     return false
   }
   return !path.split(/[/\\]/).includes('..')
@@ -523,7 +525,10 @@ export function narrowProposal(raw: RawProposal, input: NarrowProposalInput): Na
     return rejected('invalid-line', `proposal '${excerpt(title)}' has no usable line number`)
   }
 
-  const patch = raw.patch === undefined ? undefined : narrowPatch(raw.patch)
+  // `null` (JSON null) is as absent as `undefined`: falling through to
+  // `narrowPatch` would dereference it and crash, violating the "rejections are
+  // returned, never thrown" contract.
+  const patch = raw.patch === undefined || raw.patch === null ? undefined : narrowPatch(raw.patch)
   if (patch?.ok === false) {
     return patch
   }
@@ -631,17 +636,18 @@ export function findingInvariantViolation(finding: Finding): string | undefined 
 
 /**
  * Stable identity for dedupe — the same problem reported from two diff shards
- * (M4 fan-out) must collapse to one comment. NUL joins the parts because
- * `isSafeRelativePath` rejects it, so it cannot appear inside a component and
- * fake a collision.
+ * (M4 fan-out) must collapse to one comment. JSON-encoded rather than joined by
+ * a delimiter: `JSON.stringify` escapes any delimiter-like bytes, so `ruleId`
+ * and `title` (which come from model output and are not NUL-sanitized the way
+ * `path` is) cannot shift the field boundaries and fake a collision.
  */
 export function findingDedupeKey(finding: Finding): string {
-  return [
+  return JSON.stringify([
     finding.anchor.path,
     String(finding.anchor.line),
     finding.ruleId ?? '',
     finding.title.trim().toLowerCase(),
-  ].join('\0')
+  ])
 }
 
 /** Feeds the `blockers-count` scalar output. */

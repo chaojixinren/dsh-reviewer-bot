@@ -150,6 +150,7 @@ describe('anchors', () => {
     expect(isSafeRelativePath('src/../../etc/passwd')).toBe(false)
     expect(isSafeRelativePath('/abs')).toBe(false)
     expect(isSafeRelativePath('C:\\win')).toBe(false)
+    expect(isSafeRelativePath('C:foo')).toBe(false)
     expect(isSafeRelativePath('src\\..\\..\\win')).toBe(false)
     expect(isSafeRelativePath('src/a\0.ts')).toBe(false)
     expect(isSafeRelativePath('')).toBe(false)
@@ -228,6 +229,15 @@ describe('narrowProposal', () => {
     const diff = '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n'
     const finding = accept(proposal({ patch: { path: 'src/paginate.ts', diff } }))
     expect(finding.suggestedPatch).toEqual({ path: 'src/paginate.ts', diff })
+  })
+
+  it('treats a JSON null patch as absent instead of crashing', () => {
+    const raw = { ...proposal(), patch: null } as unknown as RawProposal
+    const result = narrowProposal(raw, { findingId: id, anchor: anchorAt('src/paginate.ts', 42) })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect('suggestedPatch' in result.value).toBe(false)
+    }
   })
 
   it('caps untrusted text in rejection messages', () => {
@@ -337,6 +347,14 @@ describe('findingDedupeKey', () => {
     if (elsewhere.ok) {
       expect(findingDedupeKey(elsewhere.value)).not.toBe(findingDedupeKey(base))
     }
+  })
+
+  it('keeps an embedded NUL from shifting field boundaries', () => {
+    // Under a bare `join('\0')`, ruleId='a' + title='b\0c' and
+    // ruleId='a\0b' + title='c' would serialize to the same key.
+    const a = accept(proposal({ ruleId: 'a', title: 'b\u0000c' }))
+    const b = accept(proposal({ ruleId: 'a\u0000b', title: 'c' }))
+    expect(findingDedupeKey(a)).not.toBe(findingDedupeKey(b))
   })
 })
 
