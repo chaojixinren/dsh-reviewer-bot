@@ -177,7 +177,14 @@ export function mapPermission(raw: unknown): ForgePermission {
   if (typeof raw !== 'string') {
     return 'none'
   }
-  return PERMISSION_MAP[raw.trim().toLowerCase()] ?? 'none'
+  const key = raw.trim().toLowerCase()
+  // Own-property check, not a bare index: a payload of `constructor` or
+  // `toString` would otherwise resolve through Object.prototype and hand back a
+  // function in place of a ForgePermission, defeating the fail-closed default.
+  if (!Object.hasOwn(PERMISSION_MAP, key)) {
+    return 'none'
+  }
+  return PERMISSION_MAP[key] ?? 'none'
 }
 
 const KNOWN_CONCLUSIONS: readonly CheckRun['conclusion'][] = [
