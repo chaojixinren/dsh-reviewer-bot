@@ -7,6 +7,7 @@
  * halfway through a run. See docs/06-forge-abstraction.md.
  */
 import { createHash } from 'node:crypto'
+import { anchorAt, anchorFallback } from '@dshrb/review-core'
 import type {
   Anchor, ChangeRequestId, CommentId, CommitSha, Finding, ForgeId, Patch, ReviewTarget,
 } from '@dshrb/review-core'
@@ -163,6 +164,46 @@ export function publishIdempotencyKey(finding: Finding): string {
     finding.ruleId ?? '',
   ])
   return createHash('sha256').update(encoded, 'utf8').digest('hex')
+}
+
+/**
+ * Resolves a proposed `path` + `line` onto diff coordinates.
+ *
+ * Anchoring is forced to land inside a hunk (docs/09-roadmap.md risk register):
+ * a comment on the wrong line damages trust more than a summary entry, but
+ * silently dropping a real problem is not acceptable either. A line inside a
+ * hunk anchors with the matching side; a line in no hunk degrades to a
+ * fallback anchor that records why — it is still returned, never dropped.
+ *
+ * The resolver assumes the caller has already normalized the path and line
+ * (`validate()` does this before anchoring, because anchoring a raw path would
+ * silently land on the wrong file). It therefore uses `anchorAt` /
+ * `anchorFallback`, which enforce the safe-path / positive-line invariant at
+ * construction time rather than fabricating a contradictory anchor.
+ */
+export function createAnchorResolver(): AnchorResolver {
+  return { resolve }
+}
+
+function resolve(diff: UnifiedDiff, path: string, line: number): Anchor {
+  const file = diff.files.find((candidate) => candidate.path === path || candidate.previousPath === path)
+  if (file === undefined) {
+    return anchorFallback(path, line, `file '${path}' is not in the diff`)
+  }
+  if (file.binary) {
+    return anchorFallback(path, line, `file '${path}' is binary and has no diff lines to anchor to`)
+  }
+  // The model reports new-side line numbers, so try the right side first. A
+  // line lands on the left only when it names a removed line.
+  for (const hunk of file.hunks) {
+    if (line >= hunk.newStart && line < hunk.newStart + hunk.newLines) {
+      return anchorAt(path, line, 'right')
+    }
+    if (line >= hunk.oldStart && line < hunk.oldStart + hunk.oldLines) {
+      return anchorAt(path, line, 'left')
+    }
+  }
+  return anchorFallback(path, line, `line ${line} is outside every diff hunk in '${path}'`)
 }
 
 export function createForgeRegistry(): ForgeRegistry {
