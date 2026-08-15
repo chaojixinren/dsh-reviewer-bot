@@ -70,6 +70,10 @@ describe('registration through reviewRules', () => {
     const sourceIds = registry.match('src/index.ts').map((rule) => rule.id)
     expect(sourceIds).toContain(ruleId('correctness/null-undefined'))
     expect(sourceIds).toContain(ruleId('security/path-traversal'))
+    // Missing-coverage targets branches in source, so it must load for a
+    // source-only change; skip/only are test-file constructs and stay on the
+    // test globs.
+    expect(sourceIds).toContain(ruleId('tests/missing-branch-coverage'))
     expect(sourceIds).not.toContain(ruleId('tests/skip-only-leftover'))
 
     const testIds = registry.match('src/thing.test.ts').map((rule) => rule.id)

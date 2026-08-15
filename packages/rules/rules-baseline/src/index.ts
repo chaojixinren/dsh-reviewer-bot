@@ -222,7 +222,11 @@ export const baselinePack: RulePack = {
       id: ruleId('tests/missing-branch-coverage'),
       severity: 'minor',
       requiresScenario: false,
-      applies: TEST_GLOBS,
+      // The uncovered branch lives in the source, not in the test file, so this
+      // rule must load for a source-only change (the exact case where missing
+      // coverage matters). `skip-only-leftover` is the test-file construct and
+      // therefore stays on TEST_GLOBS.
+      applies: CODE_GLOBS,
       guidance: 'Flag a new branch or error path in the change that has no corresponding test. Name the uncovered branch.',
     },
     {
