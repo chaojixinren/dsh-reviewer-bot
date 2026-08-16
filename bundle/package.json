@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/bundle",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "DSH bundle: installs DSH Reviewer Bot into a profile with `dsh plugin --profile <name> add`.",
   "license": "MIT",
@@ -24,15 +24,15 @@
     "@deepseek-ai/dsh": "0.1.0-rc.6"
   },
   "dependencies": {
-    "@dshrb/config": "workspace:0.1.3",
-    "@dshrb/forge": "workspace:0.1.3",
-    "@dshrb/forge-github": "workspace:0.1.3",
-    "@dshrb/forge-gitlab": "workspace:0.1.3",
-    "@dshrb/progress": "workspace:0.1.3",
-    "@dshrb/review-runtime": "workspace:0.1.3",
-    "@dshrb/rule-registry": "workspace:0.1.3",
-    "@dshrb/rules-baseline": "workspace:0.1.3",
-    "@dshrb/tool-review": "workspace:0.1.3",
-    "@dshrb/trust-policy": "workspace:0.1.3"
+    "@dshrb/config": "workspace:0.1.4",
+    "@dshrb/forge": "workspace:0.1.4",
+    "@dshrb/forge-github": "workspace:0.1.4",
+    "@dshrb/forge-gitlab": "workspace:0.1.4",
+    "@dshrb/progress": "workspace:0.1.4",
+    "@dshrb/review-runtime": "workspace:0.1.4",
+    "@dshrb/rule-registry": "workspace:0.1.4",
+    "@dshrb/rules-baseline": "workspace:0.1.4",
+    "@dshrb/tool-review": "workspace:0.1.4",
+    "@dshrb/trust-policy": "workspace:0.1.4"
   }
 }

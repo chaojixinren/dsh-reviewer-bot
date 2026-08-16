@@ -25,7 +25,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const VERSION = '0.1.3'
+const VERSION = '0.1.4'
 const CORDIS = '4.0.1'
 const SCHEMASTERY = '3.18.1'
 const ZOD = '4.4.3'
@@ -157,6 +157,12 @@ const CLIENT_FACES = {
     exports: {
       './client': './client.js',
       './typert': './lib/typert.js',
+      // The client-modules Node half resolves the client face by
+      // `require.resolve('<pkg>/package.json')`, which needs an explicit
+      // `./package.json` export when `exports` is present (Node's
+      // ERR_PACKAGE_PATH_NOT_EXPORTED otherwise). First-party dsh-client
+      // packages all export this subpath.
+      './package.json': './package.json',
     },
     files: ['client.js'],
     dsh: {
