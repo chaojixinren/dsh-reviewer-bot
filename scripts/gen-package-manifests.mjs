@@ -28,6 +28,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VERSION = '0.1.1'
 const CORDIS = '4.0.1'
 const SCHEMASTERY = '3.18.1'
+const ZOD = '4.4.3'
 /** All @deepseek-ai/dsh-* packages ship in lockstep with @deepseek-ai/dsh. */
 const DSH = '0.1.0-rc.6'
 
@@ -42,8 +43,9 @@ const UPSTREAM = {
   'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy', 'dsh-subagent'],
   // progress subscribes to `session/event`, owned by dsh-session.
   'progress': ['dsh-session'],
-  // config owns the `dshrb` settings namespace through dsh-settings.
-  'config': ['dsh-settings'],
+  // config owns the `dshrb` settings namespace through dsh-settings and
+  // exposes a browser Remote through the typert protocol.
+  'config': ['dsh-settings', 'dsh-typert-protocol'],
 }
 
 /**
@@ -53,6 +55,16 @@ const UPSTREAM = {
  */
 const WORKSPACE_DEV_DEPS = {
   'trust-policy': ['tool-review'],
+}
+
+/**
+ * Non-DSH runtime dependencies pinned per package. `config` depends on `zod`
+ * because its Typert manifest (`src/typert.ts`) must carry zod-v4 schemas —
+ * the loader's `requireStrictCodec` checks `_zod` + `parse`, which schemastery
+ * schemas do not expose.
+ */
+const EXTRA_DEPENDENCIES = {
+  'config': { 'zod': ZOD },
 }
 
 /**
@@ -133,6 +145,34 @@ const PUBLISHABLE = new Set([
   'rules-baseline',
 ])
 
+/**
+ * Packages that also ship a browser client half. `config` exposes the DSH
+ * Reviewer settings section (`./client`, a static `window.__ModuleLoader__`
+ * asset) and its Typert host-face manifest (`./typert`, compiled from
+ * `src/typert.ts`). `dsh.client.inject` lists the packages the browser module
+ * loader must load first — the same set the first-party settings tabs use.
+ */
+const CLIENT_FACES = {
+  'config': {
+    exports: {
+      './client': './client.js',
+      './typert': './lib/typert.js',
+    },
+    files: ['client.js'],
+    dsh: {
+      client: {
+        inject: [
+          '@deepseek-ai/dsh-api-remotes',
+          '@deepseek-ai/dsh-client-runtime',
+          '@deepseek-ai/dsh-client-ui-settings',
+          '@deepseek-ai/dsh-client-locale',
+        ],
+        platform: 'web',
+      },
+    },
+  },
+}
+
 for (const [dir, short, description, deps] of PACKAGES) {
   const pkgDir = join(root, 'packages', dir)
   mkdirSync(join(pkgDir, 'src'), { recursive: true })
@@ -143,6 +183,9 @@ for (const [dir, short, description, deps] of PACKAGES) {
   }
   for (const u of RUNTIME_DSH_DEPS[short] ?? []) {
     dependencies[`@deepseek-ai/${u}`] = DSH
+  }
+  for (const [k, v] of Object.entries(EXTRA_DEPENDENCIES[short] ?? {})) {
+    dependencies[k] = v
   }
 
   // cordis and every injected service's owner appear in peer + dev at the
@@ -157,6 +200,7 @@ for (const [dir, short, description, deps] of PACKAGES) {
     devDependencies[`@dshrb/${d}`] = 'workspace:*'
   }
 
+  const face = CLIENT_FACES[short] ?? {}
   const pkg = {
     name: `@dshrb/${short}`,
     version: VERSION,
@@ -176,6 +220,7 @@ for (const [dir, short, description, deps] of PACKAGES) {
           publishConfig: { access: 'public' },
         }
       : {}),
+    ...(face.dsh !== undefined ? { dsh: face.dsh } : {}),
     main: 'lib/index.js',
     types: 'lib/types/index.d.ts',
     exports: {
@@ -183,8 +228,9 @@ for (const [dir, short, description, deps] of PACKAGES) {
         types: './lib/types/index.d.ts',
         default: './lib/index.js',
       },
+      ...(face.exports ?? {}),
     },
-    files: ['lib'],
+    files: ['lib', ...(face.files ?? [])],
     dependencies,
     peerDependencies,
     devDependencies,
