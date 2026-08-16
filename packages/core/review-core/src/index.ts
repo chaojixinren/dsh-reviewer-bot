@@ -490,9 +490,16 @@ export function findingCategory(ruleId: RuleId | undefined): string | undefined 
   return category === '' ? undefined : category
 }
 
-/** Escapes a value for a shields.io static-badge path segment (`-`/`_` are separators). */
+/**
+ * Escapes a value for a shields.io static-badge path segment. `-` and `_` are
+ * shields.io separators so they are doubled first; `(`/`)` are left alone by
+ * `encodeURIComponent` but are structural in a Markdown link destination, so
+ * they are percent-encoded explicitly.
+ */
 function shieldsEscape(value: string): string {
   return encodeURIComponent(value.replace(/-/g, '--').replace(/_/g, '__'))
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29')
 }
 
 /** Escapes Markdown image alt text so a stray `[`/`]`/`\` cannot break the image. */
@@ -511,17 +518,21 @@ function escapeMarkdownAlt(value: string): string {
  * validated enum, so the color lookup never misses.
  *
  *   category + severity → `![category · severity](…/badge/category-severity-<color>)`
- *   severity only       → `![severity](…/badge/severity-<color>)`
+ *   severity only       → `![severity](…/badge/severity--<color>)`
+ *
+ * The severity-only form uses the shields.io double-dash (empty message) so the
+ * trailing segment stays the color; a bare `severity-<color>` would make the
+ * color the badge message and drop the tint.
  */
 export function buildFindingBadge(finding: Finding): string {
   const category = findingCategory(finding.ruleId)
   const severity = finding.severity
   const color = SEVERITY_BADGE_COLOR[severity]
   const alt = category === undefined ? severity : `${category} · ${severity}`
-  const label = category === undefined
-    ? shieldsEscape(severity)
-    : `${shieldsEscape(category)}-${shieldsEscape(severity)}`
-  return `![${escapeMarkdownAlt(alt)}](https://img.shields.io/badge/${label}-${color})`
+  const path = category === undefined
+    ? `${shieldsEscape(severity)}--${color}`
+    : `${shieldsEscape(category)}-${shieldsEscape(severity)}-${color}`
+  return `![${escapeMarkdownAlt(alt)}](https://img.shields.io/badge/${path})`
 }
 
 export interface SeverityClaim {

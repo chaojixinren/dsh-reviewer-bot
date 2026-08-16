@@ -136,7 +136,16 @@ describe('finding badge', () => {
   it('renders severity only when there is no ruleId', () => {
     const finding = accept(proposal({ severity: 'minor' }))
     expect(buildFindingBadge(finding)).toBe(
-      '![minor](https://img.shields.io/badge/minor-orange)',
+      '![minor](https://img.shields.io/badge/minor--orange)',
+    )
+  })
+
+  it('doubles a hyphen in a category so shields.io keeps it in the label', () => {
+    // `api-contract` is a real baseline category: a bare `-` would 404 or
+    // re-split into label=api, message=contract.
+    const finding = accept(proposal({ severity: 'minor', ruleId: 'api-contract/schema-change' }))
+    expect(buildFindingBadge(finding)).toBe(
+      '![api-contract · minor](https://img.shields.io/badge/api--contract-minor-orange)',
     )
   })
 
@@ -149,10 +158,22 @@ describe('finding badge', () => {
 
   it('escapes markdown-special and URL-special characters', () => {
     // A third-party ruleId is only non-empty-branded, not charset-restricted.
-    const finding = accept(proposal({ severity: 'major', ruleId: 'sec[x/y' }))
-    const badge = buildFindingBadge(finding)
-    expect(badge).toContain('sec\\[x · major')
-    expect(badge).toContain('/badge/sec%5Bx-major-red')
+    const bracket = accept(proposal({ severity: 'major', ruleId: 'sec[x/y' }))
+    expect(buildFindingBadge(bracket)).toBe(
+      '![sec\\[x · major](https://img.shields.io/badge/sec%5Bx-major-red)',
+    )
+
+    // `)` closes a Markdown link destination, so it must be percent-encoded.
+    const paren = accept(proposal({ severity: 'major', ruleId: 'foo)bar/rule' }))
+    expect(buildFindingBadge(paren)).toBe(
+      '![foo)bar · major](https://img.shields.io/badge/foo%29bar-major-red)',
+    )
+
+    // `_` is a shields.io separator; `\` and `]` are structural in the alt.
+    const underscore = accept(proposal({ severity: 'nit', ruleId: 'sec_ure/rule' }))
+    expect(buildFindingBadge(underscore)).toBe(
+      '![sec_ure · nit](https://img.shields.io/badge/sec__ure-nit-green)',
+    )
   })
 })
 
