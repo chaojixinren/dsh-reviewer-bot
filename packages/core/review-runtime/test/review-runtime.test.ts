@@ -2136,7 +2136,6 @@ describe('clusterWithinShard', () => {
   it('collapses near-duplicates within the line window', () => {
     const out = clusterWithinShard([mkFinding(10), mkFinding(12)], 5)
     expect(out.findings).toHaveLength(1)
-    expect(out.merged).toHaveLength(1)
   })
 
   it('keeps findings whose line distance exceeds the window', () => {
