@@ -484,6 +484,13 @@ describe('botIdentity', () => {
     ]))
     await expect(gateway.botIdentity()).rejects.toThrow(TypeError)
   })
+
+  it('falls back to github-actions[bot] when the token is an integration (403 /user)', async () => {
+    const gateway = createGitHubGateway(config(), stubFetch([
+      { match: '/user', status: 403, text: '{"message":"Resource not accessible by integration"}' },
+    ]))
+    expect(await gateway.botIdentity()).toEqual({ id: '41898282', login: 'github-actions[bot]' })
+  })
 })
 
 describe('fetchDiff', () => {

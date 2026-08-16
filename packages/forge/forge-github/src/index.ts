@@ -92,6 +92,10 @@ export interface GitHubGateway
 
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u
 
+/** Stable user id of the `github-actions[bot]` app account (used when the
+ * token is an integration and `GET /user` is not accessible). */
+const GITHUB_ACTIONS_BOT_ID = '41898282'
+
 function assertRepo(repo: string): string {
   const trimmed = repo.trim()
   if (!REPO_RE.test(trimmed)) {
@@ -653,9 +657,25 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
     return headRepo.fork
   }
 
-  /** Returns the numeric id as identity, since logins can be renamed. */
+  /**
+   * Returns the numeric id as identity, since logins can be renamed.
+   *
+   * The Actions `GITHUB_TOKEN` is a GitHub App installation token, and `GET
+   * /user` is not accessible to integrations (403 "Resource not accessible by
+   * integration"). In the Action the comments are authored by the well-known
+   * `github-actions` app, so a 403 falls back to that stable user id/login
+   * instead of failing the whole publish. A user PAT keeps the `/user` path.
+   */
   async function botIdentity(): Promise<BotIdentity> {
-    const raw = await getJson<{ id?: unknown; login?: unknown }>('/user')
+    let raw: { id?: unknown; login?: unknown }
+    try {
+      raw = await getJson<{ id?: unknown; login?: unknown }>('/user')
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 403) {
+        return { id: GITHUB_ACTIONS_BOT_ID, login: 'github-actions[bot]' }
+      }
+      throw error
+    }
     const id = raw.id
     if (typeof id !== 'number' && typeof id !== 'string') {
       throw new TypeError('github: /user returned no usable numeric id')
