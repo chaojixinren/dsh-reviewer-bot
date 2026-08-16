@@ -16,7 +16,7 @@ import type {
   UnifiedDiff,
 } from '@dshrb/forge'
 import {
-  commentId as brandCommentId, forgeId, isAnchored, isSafeRelativePath,
+  commentId as brandCommentId, commitSha, forgeId, isAnchored, isSafeRelativePath,
 } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, Finding, ForgeId, Patch, ReviewTarget,
@@ -33,14 +33,6 @@ export const CAPABILITIES: readonly ForgeCapability[] = [
   'diff-source', 'comment-sink', 'inline-comments', 'sticky-comment',
   'actor-resolver', 'check-reader', 'mutation-sink',
 ]
-
-/**
- * Advertised so `ForgeRegistry.require` resolves for M3 consumers, but not yet
- * implemented. Exported so a caller can assert the boundary up front instead of
- * discovering it mid-pipeline; the methods throw `ForgeUnimplementedError`
- * rather than reporting a success they did not perform.
- */
-export const UNIMPLEMENTED_CAPABILITIES: readonly ForgeCapability[] = ['mutation-sink']
 
 /** Marks our sticky comment. Must be the FIRST line to be recognized as ours. */
 export const STICKY_MARKER_PREFIX = '<!-- dshrb:sticky:'
@@ -84,15 +76,6 @@ export class GitHubApiError extends Error {
   ) {
     super(`GitHub ${method} ${path} failed with ${String(status)}: ${detail}`)
     this.name = 'GitHubApiError'
-  }
-}
-
-/** The M3 boundary, as an explicit refusal rather than a silent success. */
-export class ForgeUnimplementedError extends Error {
-  readonly code = 'E_FORGE_M3_UNIMPLEMENTED'
-  constructor(operation: string) {
-    super(`github: ${operation} is declared for M3 but not implemented yet`)
-    this.name = 'ForgeUnimplementedError'
   }
 }
 
@@ -244,6 +227,128 @@ export function parseHunks(patch: string): readonly DiffHunk[] {
   }
   flush()
   return hunks
+}
+
+// ---------------------------------------------------------------------------
+// Unified diff application (MutationSink.commitPatches)
+//
+// The Git Data API takes full file content (as a blob), not a diff, so each
+// patch's diff is applied to the base content fetched at the repository default
+// branch before the blob is created.
+// ---------------------------------------------------------------------------
+
+interface ApplyPatchResult {
+  readonly ok: boolean
+  readonly content?: string
+  readonly reason?: string
+}
+
+interface PatchLine {
+  readonly text: string
+  readonly newline: boolean
+}
+
+function splitPatchLines(content: string): PatchLine[] {
+  if (content === '') return []
+  const endsWithNewline = content.endsWith('\n')
+  const parts = content.split('\n')
+  const texts = endsWithNewline ? parts.slice(0, -1) : parts
+  return texts.map((text, i) => ({ text, newline: endsWithNewline || i < texts.length - 1 }))
+}
+
+function joinPatchLines(lines: readonly PatchLine[]): string {
+  let out = ''
+  for (const line of lines) {
+    out += line.text
+    if (line.newline) out += '\n'
+  }
+  return out
+}
+
+/**
+ * Applies a single-file unified diff to `content`, mirroring the runtime's
+ * `applyUnifiedDiff` semantics: deterministic, offline, and a hunk that does
+ * not line up fails rather than guessing. A bad patch is the model's output and
+ * must be reported, never silently mis-applied.
+ */
+export function applyPatch(content: string, diff: string): ApplyPatchResult {
+  const oldLines = splitPatchLines(content)
+  const result: PatchLine[] = []
+  let cursor = 0
+  const lines = diff.split('\n')
+  let index = 0
+
+  // Skip any file preamble until the first hunk header.
+  while (index < lines.length && HUNK_HEADER_RE.exec(lines[index] ?? '') === null) {
+    index++
+  }
+
+  let sawHunk = false
+  while (index < lines.length) {
+    const header = HUNK_HEADER_RE.exec(lines[index] ?? '')
+    if (header === null) {
+      index++
+      continue
+    }
+    sawHunk = true
+    const oldStart = Number(header[1])
+    const oldCount = header[2] === undefined ? 1 : Number(header[2])
+    // A pure insertion (`oldCount === 0`) anchors to `oldStart` — "insert after
+    // that old line" in 0-based terms — not the running cursor.
+    const target = oldCount === 0 ? oldStart : oldStart - 1
+    if (target < cursor) {
+      return { ok: false, reason: 'hunk overlaps a previous hunk' }
+    }
+    while (cursor < target) {
+      result.push(oldLines[cursor] ?? { text: '', newline: true })
+      cursor++
+    }
+
+    index++
+    let lastKind: 'add' | 'remove' | 'context' | null = null
+    while (index < lines.length && HUNK_HEADER_RE.exec(lines[index] ?? '') === null) {
+      const line = lines[index] ?? ''
+      if (line === '\\ No newline at end of file') {
+        if (lastKind === 'add' || lastKind === 'context') {
+          const prev = result[result.length - 1]
+          if (prev !== undefined) result[result.length - 1] = { text: prev.text, newline: false }
+        }
+        lastKind = null
+      } else if (line.startsWith('+')) {
+        result.push({ text: line.slice(1), newline: true })
+        lastKind = 'add'
+      } else if (line.startsWith('-')) {
+        const removed = oldLines[cursor]
+        if (removed === undefined || removed.text !== line.slice(1)) {
+          return { ok: false, reason: `hunk removes a line that does not match the file at line ${cursor + 1}` }
+        }
+        cursor++
+        lastKind = 'remove'
+      } else if (line.startsWith(' ')) {
+        const context = oldLines[cursor]
+        if (context === undefined || context.text !== line.slice(1)) {
+          return { ok: false, reason: `hunk context does not match the file at line ${cursor + 1}` }
+        }
+        result.push({ text: context.text, newline: context.newline })
+        cursor++
+        lastKind = 'context'
+      } else if (line === '') {
+        // Trailing blank line artifact after the final hunk.
+      } else {
+        return { ok: false, reason: `unexpected patch line '${excerpt(line)}'` }
+      }
+      index++
+    }
+  }
+
+  if (!sawHunk) {
+    return { ok: false, reason: 'patch contains no hunk header' }
+  }
+  while (cursor < oldLines.length) {
+    result.push(oldLines[cursor] ?? { text: '', newline: true })
+    cursor++
+  }
+  return { ok: true, content: joinPatchLines(result) }
 }
 
 // ---------------------------------------------------------------------------
@@ -605,16 +710,136 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
     return await (await request('GET', path, { accept: 'application/vnd.github+json' })).text()
   }
 
-  // -- MutationSink (M3) ----------------------------------------------------
+  // -- MutationSink ---------------------------------------------------------
 
   async function commitPatches(
-    _repo: string, _branch: string, _patches: readonly Patch[], _message: string,
+    repo: string, branch: string, patches: readonly Patch[], message: string,
   ): Promise<CommitSha> {
-    throw new ForgeUnimplementedError('commitPatches')
+    const repoPath = assertRepo(repo)
+    if (patches.length === 0) {
+      throw new TypeError('github: commitPatches received no patches')
+    }
+    // The head branch does not exist yet; fork it from the repository default
+    // branch, which is the only sane base the `MutationSink` interface exposes
+    // (it passes no base sha/branch).
+    interface RawRepo { default_branch?: unknown }
+    const rawRepo = await getJson<RawRepo>(`/repos/${repoPath}`)
+    if (typeof rawRepo.default_branch !== 'string' || rawRepo.default_branch.trim() === '') {
+      throw new TypeError('github: repository returned no usable default_branch')
+    }
+    const baseBranch = rawRepo.default_branch.trim()
+
+    // One call yields both the head commit sha (for the parent) and the base
+    // tree sha (for the tree the new blobs are attached to).
+    interface RawHeadCommit {
+      sha?: unknown
+      commit?: { tree?: { sha?: unknown } | null } | null
+    }
+    const head = await getJson<RawHeadCommit>(
+      `/repos/${repoPath}/commits/${encodeURIComponent(baseBranch)}`,
+    )
+    if (typeof head.sha !== 'string' || head.sha.trim() === '') {
+      throw new TypeError('github: default branch returned no usable commit sha')
+    }
+    const baseHeadSha = head.sha.trim()
+    const baseTreeSha = head.commit?.tree?.sha
+    if (typeof baseTreeSha !== 'string' || baseTreeSha.trim() === '') {
+      throw new TypeError('github: default branch commit returned no usable tree sha')
+    }
+
+    interface RawTreeEntry { path: string; mode: '100644'; type: 'blob'; sha: string }
+    const treeEntries: RawTreeEntry[] = []
+
+    // Group patches by path so multiple hunks against the same file apply
+    // cumulatively (the runtime's mutate stage applies them sequentially).
+    // Without grouping, two patches on one path would emit duplicate tree
+    // entries, which the Git Data API rejects.
+    const patchesByPath = new Map<string, Patch[]>()
+    for (const patch of patches) {
+      const filePath = assertSafePath(patch.path)
+      const group = patchesByPath.get(filePath)
+      if (group === undefined) {
+        patchesByPath.set(filePath, [patch])
+      } else {
+        group.push(patch)
+      }
+    }
+    for (const [filePath, group] of patchesByPath) {
+      const encoded = filePath.split('/').map(encodeURIComponent).join('/')
+      let content = ''
+      try {
+        const response = await request(
+          'GET',
+          `/repos/${repoPath}/contents/${encoded}?ref=${encodeURIComponent(baseBranch)}`,
+          { accept: 'application/vnd.github.raw' },
+        )
+        content = await response.text()
+      } catch (error) {
+        // 404 means the file does not exist on the base branch, so this patch
+        // creates it from empty content.
+        if (error instanceof GitHubApiError && error.status === 404) {
+          content = ''
+        } else {
+          throw error
+        }
+      }
+      for (const patch of group) {
+        const applied = applyPatch(content, patch.diff)
+        if (!applied.ok || applied.content === undefined) {
+          throw new TypeError(`github: patch for '${excerpt(patch.path)}' does not apply: ${applied.reason ?? 'unknown'}`)
+        }
+        content = applied.content
+      }
+      interface RawBlob { sha?: unknown }
+      const blob = await (await request('POST', `/repos/${repoPath}/git/blobs`, {
+        body: { content, encoding: 'utf-8' },
+      })).json() as RawBlob
+      if (typeof blob.sha !== 'string' || blob.sha.trim() === '') {
+        throw new TypeError('github: blob response returned no usable sha')
+      }
+      treeEntries.push({ path: filePath, mode: '100644', type: 'blob', sha: blob.sha })
+    }
+
+    interface RawTree { sha?: unknown }
+    const tree = await (await request('POST', `/repos/${repoPath}/git/trees`, {
+      body: { base_tree: baseTreeSha, tree: treeEntries },
+    })).json() as RawTree
+    if (typeof tree.sha !== 'string' || tree.sha.trim() === '') {
+      throw new TypeError('github: tree response returned no usable sha')
+    }
+
+    interface RawCommit { sha?: unknown }
+    const commit = await (await request('POST', `/repos/${repoPath}/git/commits`, {
+      body: { message, tree: tree.sha, parents: [baseHeadSha] },
+    })).json() as RawCommit
+    if (typeof commit.sha !== 'string' || commit.sha.trim() === '') {
+      throw new TypeError('github: commit response returned no usable sha')
+    }
+
+    // Create the write branch pointing at the new commit. The branch name is
+    // derived from the request id (`dshrb-fix/<id>`), so it does not exist yet.
+    await request('POST', `/repos/${repoPath}/git/refs`, {
+      body: { ref: `refs/heads/${branch}`, sha: commit.sha },
+    })
+
+    return commitSha(commit.sha)
   }
 
-  async function openPullRequest(_spec: PullRequestSpec): Promise<string> {
-    throw new ForgeUnimplementedError('openPullRequest')
+  async function openPullRequest(spec: PullRequestSpec): Promise<string> {
+    const repoPath = assertRepo(spec.repo)
+    interface RawPull { html_url?: unknown }
+    const pull = await (await request('POST', `/repos/${repoPath}/pulls`, {
+      body: {
+        title: spec.title,
+        head: spec.headBranch,
+        base: spec.baseBranch,
+        body: spec.body,
+      },
+    })).json() as RawPull
+    if (typeof pull.html_url !== 'string' || pull.html_url.trim() === '') {
+      throw new TypeError('github: pull request response returned no usable html_url')
+    }
+    return pull.html_url.trim()
   }
 
   return {
