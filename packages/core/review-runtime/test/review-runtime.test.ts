@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
+import { changeRequestId, calibrateSeverity, commentId, commitSha, findingId, forgeId, isSafeGlobPattern, requestId, ruleId, wildcardMemoryKey } from '@dshrb/review-core'
 import type {
   Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget, SuppressedFinding,
 } from '@dshrb/review-core'
@@ -14,9 +14,9 @@ import type { TrustPolicy } from '@dshrb/trust-policy'
 import type { FsPathInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type { ConfinedArgv, SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
-  acceptCommand, applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
-  buildValidationEnv, classifyConfinedRun, clusterFiles, deriveReplayId, extractLocalImports, fanOutShards,
-  ingest, mergeFindings, mutate, narrowPatches, parseMemory, parseMemoryReference, parseReplaySnapshot, reason,
+  acceptCommand, acceptGlobCommand, acceptRuleCommand, applySeverityOverrides, applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
+  buildValidationEnv, classifyConfinedRun, clusterFiles, clusterWithinShard, deriveReplayId, extractLocalImports, fanOutShards,
+  fetchNeighborContents, ingest, mergeFindings, mutate, narrowPatches, parseMemory, parseMemoryReference, parseReplaySnapshot, reason,
   renderDiagnoseContext, report, resolveLocalImport, route, runReview, runValidationCommands, serializeMemory, shardDiff,
   SNAPSHOT_VERSION, suppressResolved, toConfinedPolicy, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
   writeBranchName,
@@ -100,7 +100,11 @@ function gatewayFixture(over: Partial<FakeGateway> = {}): ForgeRegistry {
     fetchFile: async () => 'file content',
     createComment: async () => commentId('c-1'),
     updateComment: async () => {},
-    createInlineComments: async (): Promise<PublishStats> => ({ published: 1, degradedToSummary: 0, failed: 0 }),
+    createInlineComments: async (_target, findings, _botId): Promise<PublishStats> => ({
+      published: findings.length,
+      degradedToSummary: 0,
+      failed: 0,
+    }),
     findStickyComment: async () => undefined,
     listFailedChecks: async (): Promise<readonly CheckRun[]> => [checkRunFixture()],
     fetchLog: async () => 'job failed: null pointer dereference',
@@ -170,6 +174,9 @@ function configFixture(over: Partial<Config> = {}): Config {
     minSeverity: 'minor',
     testCommands: [],
     validationEnv: [],
+    severityOverrides: {},
+    clusterWindow: 0,
+    neighborBytes: 0,
     ...over,
   }
 }
@@ -1892,5 +1899,408 @@ describe('runReview cross-PR memory', () => {
     expect(result.verdict.status).toBe('failed')
     expect(result.failure?.code).toBe('E_MEMORY_ARGS')
     expect(result.failure?.phase).toBe('memory')
+  })
+})
+
+// --- Noise governance: severity calibration (RFC N2) ------------------------
+
+describe('calibrateSeverity', () => {
+  it('relaxes a finding to the configured override', () => {
+    expect(calibrateSeverity('major', 'info')).toBe('info')
+  })
+
+  it('never escalates: an override that is more severe is ignored', () => {
+    expect(calibrateSeverity('info', 'major')).toBe('info')
+  })
+
+  it('treats an equal override as a no-op identity', () => {
+    expect(calibrateSeverity('minor', 'minor')).toBe('minor')
+  })
+
+  it('returns the original severity when no override is given', () => {
+    expect(calibrateSeverity('blocker', undefined)).toBe('blocker')
+  })
+})
+
+describe('applySeverityOverrides', () => {
+  function mkFinding(over: Partial<Finding> = {}): Finding {
+    return {
+      findingId: findingId('f1'),
+      severity: 'major',
+      title: 'use strict equality',
+      body: 'prefer === over ==',
+      anchor: { path: 'src/index.ts', line: 10, side: 'right', anchored: true },
+      ...over,
+    }
+  }
+
+  it('relaxes a finding whose rule has an override', () => {
+    const findings = applySeverityOverrides(
+      [mkFinding({ ruleId: ruleId('correctness/eq') })],
+      { 'correctness/eq': 'info' },
+    )
+    expect(findings).toHaveLength(1)
+    expect(findings[0]?.severity).toBe('info')
+  })
+
+  it('leaves findings of other rules and findings without a rule untouched', () => {
+    const findings = applySeverityOverrides(
+      [mkFinding({ ruleId: ruleId('other/rule') }), mkFinding({ title: 'no rule' })],
+      { 'correctness/eq': 'info' },
+    )
+    expect(findings.map((f) => f.severity)).toEqual(['major', 'major'])
+  })
+
+  it('is a no-op for an empty override table', () => {
+    const input = [mkFinding({ ruleId: ruleId('correctness/eq') })]
+    expect(applySeverityOverrides(input, {})).toEqual(input)
+  })
+})
+
+describe('runReview severity overrides (RFC N2, end-to-end)', () => {
+  it('calibrates a noisy rule and keeps the finding in result-json but below publish', async () => {
+    const deps = depsFixture({
+      runAgent: async () => ({ proposals: [validProposal({ ruleId: 'correctness/eq' })], patches: [] }),
+    })
+    const result = await runReview(prPayload(), deps, configFixture({ severityOverrides: { 'correctness/eq': 'info' } }))
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(1)
+    expect(result.findings[0]?.severity).toBe('info')
+    expect(result.publication?.published).toBe(0)
+  })
+})
+
+// --- Noise governance: wildcard suppression (RFC N1) ------------------------
+
+describe('suppressResolved wildcard', () => {
+  function mkFinding(over: Partial<Finding> = {}): Finding {
+    return {
+      findingId: findingId('f1'),
+      severity: 'major',
+      title: 'use strict equality',
+      body: 'prefer === over ==',
+      anchor: { path: 'src/index.ts', line: 10, side: 'right', anchored: true },
+      ...over,
+    }
+  }
+
+  it('suppresses by rule-only when the ruleId matches', () => {
+    const finding = mkFinding({ ruleId: ruleId('correctness/eq') })
+    const exception = resolvedFixture({ ruleOnly: true, ruleId: ruleId('correctness/eq'), path: '', title: '' })
+    const out = suppressResolved([finding], [exception])
+    expect(out.findings).toHaveLength(0)
+    expect(out.suppressed).toHaveLength(1)
+    expect(out.suppressed[0]?.key).toBe(wildcardMemoryKey('correctness/eq', ''))
+  })
+
+  it('does not suppress a different rule under rule-only', () => {
+    const finding = mkFinding({ ruleId: ruleId('other/rule') })
+    const exception = resolvedFixture({ ruleOnly: true, ruleId: ruleId('correctness/eq'), path: '', title: '' })
+    const out = suppressResolved([finding], [exception])
+    expect(out.findings).toHaveLength(1)
+    expect(out.suppressed).toHaveLength(0)
+  })
+
+  it('suppresses by path glob + rule', () => {
+    const finding = mkFinding({ ruleId: ruleId('correctness/eq'), anchor: { path: 'src/deep/a.ts', line: 10, side: 'right', anchored: true } })
+    const exception = resolvedFixture({ pathGlob: 'src/**/*.ts', ruleId: ruleId('correctness/eq'), path: '', title: '' })
+    const out = suppressResolved([finding], [exception])
+    expect(out.suppressed).toHaveLength(1)
+  })
+
+  it('does not suppress when the glob misses the path', () => {
+    const finding = mkFinding({ ruleId: ruleId('correctness/eq'), anchor: { path: 'lib/x.ts', line: 10, side: 'right', anchored: true } })
+    const exception = resolvedFixture({ pathGlob: 'src/**/*.ts', ruleId: ruleId('correctness/eq'), path: '', title: '' })
+    expect(suppressResolved([finding], [exception]).findings).toHaveLength(1)
+  })
+
+  it('does not suppress when the glob has a ruleId that differs', () => {
+    const finding = mkFinding({ ruleId: ruleId('other/rule'), anchor: { path: 'src/a.ts', line: 10, side: 'right', anchored: true } })
+    const exception = resolvedFixture({ pathGlob: 'src/**', ruleId: ruleId('correctness/eq'), path: '', title: '' })
+    expect(suppressResolved([finding], [exception]).findings).toHaveLength(1)
+  })
+
+  it('suppresses any rule under a glob with an empty ruleId', () => {
+    const finding = mkFinding({ ruleId: ruleId('whatever/rule'), anchor: { path: 'src/a.ts', line: 10, side: 'right', anchored: true } })
+    // An empty/absent ruleId on a glob means "suppress any rule" — represented
+    // by omitting the branded `ruleId` (the matcher treats `?? ''` as "any").
+    const exception = resolvedFixture({ pathGlob: 'src/**', path: '', title: '' })
+    expect(suppressResolved([finding], [exception]).suppressed).toHaveLength(1)
+  })
+})
+
+describe('parseMemoryReference wildcard', () => {
+  it('parses @dsr accept-rule <ruleId>', () => {
+    const parsed = parseMemoryReference('@dsr accept-rule correctness/eq\nnoisy')
+    expect(parsed).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: 'noisy', wildcard: 'rule' })
+  })
+
+  it('parses @dsr accept-glob <glob> [ruleId]', () => {
+    const parsed = parseMemoryReference('@dsr accept-glob src/**/*.ts correctness/eq')
+    expect(parsed).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: '', wildcard: 'glob', pathGlob: 'src/**/*.ts' })
+  })
+
+  it('parses a glob with no ruleId', () => {
+    const parsed = parseMemoryReference('@dsr accept-glob src/**')
+    expect(parsed.ok && parsed.wildcard === 'glob' && parsed.pathGlob === 'src/**' && parsed.ruleId === '').toBe(true)
+  })
+
+  it('rejects an empty ruleId for accept-rule', () => {
+    expect(parseMemoryReference('@dsr accept-rule')).toEqual({ ok: false, message: expect.stringContaining('non-empty ruleId') })
+  })
+
+  it('rejects an unsafe path pattern for accept-glob', () => {
+    expect(parseMemoryReference('@dsr accept-glob ../x correctness/eq')).toEqual({ ok: false, message: expect.stringContaining('safe repo-relative pattern') })
+  })
+})
+
+describe('wildcard command builders (RFC N1)', () => {
+  it('acceptRuleCommand emits a command parseMemoryReference round-trips', () => {
+    const command = acceptRuleCommand('correctness/eq')
+    expect(command).toBe('@dsr accept-rule correctness/eq')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: '', wildcard: 'rule' })
+  })
+
+  it('acceptGlobCommand emits a glob-only command that round-trips', () => {
+    const command = acceptGlobCommand('src/**')
+    expect(command).toBe('@dsr accept-glob src/**')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: '', title: '', reason: '', wildcard: 'glob', pathGlob: 'src/**' })
+  })
+
+  it('acceptGlobCommand emits a glob+rule command that round-trips', () => {
+    const command = acceptGlobCommand('src/**/*.ts', 'correctness/eq')
+    expect(command).toBe('@dsr accept-glob src/**/*.ts correctness/eq')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: '', wildcard: 'glob', pathGlob: 'src/**/*.ts' })
+  })
+})
+
+describe('runReview wildcard memory commands (RFC N1, end-to-end)', () => {
+  it('records a rule-only exception for @dsr accept-rule', async () => {
+    const recorded: Array<{ repo: string; exception: ResolvedException }> = []
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({ recordResolved: async (repo, exception) => { recorded.push({ repo, exception }) } }),
+    })
+    const result = await runReview(commentPayload('@dsr accept-rule correctness/eq\nnoisy rule'), deps, configFixture())
+    expect(result.operation).toBe('accept')
+    expect(recorded[0]?.exception.ruleOnly).toBe(true)
+    expect(recorded[0]?.exception.ruleId).toBe(ruleId('correctness/eq'))
+    expect(recorded[0]?.exception.path).toBe('')
+    expect(recorded[0]?.exception.title).toBe('')
+  })
+
+  it('forgets a rule-only exception for @dsr forget-rule', async () => {
+    const forgotten: Array<{ repo: string; key: string }> = []
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({ forgetResolved: async (repo, key) => { forgotten.push({ repo, key }) } }),
+    })
+    const result = await runReview(commentPayload('@dsr forget-rule correctness/eq'), deps, configFixture())
+    expect(result.operation).toBe('forget')
+    expect(forgotten).toEqual([{ repo: 'acme/widgets', key: wildcardMemoryKey('correctness/eq', '') }])
+  })
+})
+
+describe('serializeMemory / parseMemory wildcard', () => {
+  it('round-trips a rule-only exception, recomputing a wildcard key', () => {
+    const exception: ResolvedException = {
+      key: wildcardMemoryKey('correctness/eq', ''),
+      path: '',
+      title: '',
+      reason: 'noisy',
+      resolvedBy: 'bob',
+      resolvedAt: 0,
+      ruleId: ruleId('correctness/eq'),
+      ruleOnly: true,
+    }
+    const parsed = parseMemory(JSON.parse(serializeMemory('acme/widgets', [exception])))
+    expect(parsed.exceptions).toHaveLength(1)
+    expect(parsed.exceptions[0]?.ruleOnly).toBe(true)
+    expect(parsed.exceptions[0]?.ruleId).toBe(ruleId('correctness/eq'))
+    expect(parsed.exceptions[0]?.key).toBe(wildcardMemoryKey('correctness/eq', ''))
+  })
+
+  it('round-trips a path-glob exception', () => {
+    const exception: ResolvedException = {
+      key: wildcardMemoryKey('correctness/eq', 'src/**'),
+      path: '',
+      title: '',
+      reason: 'noisy',
+      resolvedBy: 'bob',
+      resolvedAt: 0,
+      ruleId: ruleId('correctness/eq'),
+      pathGlob: 'src/**',
+    }
+    const parsed = parseMemory(JSON.parse(serializeMemory('acme/widgets', [exception])))
+    expect(parsed.exceptions[0]?.pathGlob).toBe('src/**')
+    expect(parsed.exceptions[0]?.key).toBe(wildcardMemoryKey('correctness/eq', 'src/**'))
+  })
+
+  it('rejects a rule-only exception with an empty ruleId', () => {
+    const raw = { version: 1, repo: 'acme/widgets', exceptions: [{ ruleOnly: true, path: '', title: '', reason: 'r', resolvedBy: 'b', resolvedAt: 0 }] }
+    expect(() => parseMemory(raw)).toThrow(/non-empty ruleId/)
+  })
+
+  it('rejects an unsafe pathGlob', () => {
+    const raw = { version: 1, repo: 'acme/widgets', exceptions: [{ pathGlob: '../x', ruleId: 'a', path: '', title: '', reason: 'r', resolvedBy: 'b', resolvedAt: 0 }] }
+    expect(() => parseMemory(raw)).toThrow(/safe repo-relative pattern/)
+  })
+})
+
+// --- Noise governance: within-shard clustering (RFC N3) ---------------------
+
+describe('clusterWithinShard', () => {
+  function mkFinding(line: number, over: Partial<Finding> = {}): Finding {
+    return {
+      findingId: findingId(`f${line}`),
+      severity: 'major',
+      title: 'use strict equality',
+      body: 'prefer === over ==',
+      anchor: { path: 'src/index.ts', line, side: 'right', anchored: true },
+      ...over,
+    }
+  }
+
+  it('collapses near-duplicates within the line window', () => {
+    const out = clusterWithinShard([mkFinding(10), mkFinding(12)], 5)
+    expect(out.findings).toHaveLength(1)
+  })
+
+  it('keeps findings whose line distance exceeds the window', () => {
+    const out = clusterWithinShard([mkFinding(10), mkFinding(12)], 1)
+    expect(out.findings).toHaveLength(2)
+  })
+
+  it('keeps findings of different rules', () => {
+    const out = clusterWithinShard([mkFinding(10, { ruleId: ruleId('a/b') }), mkFinding(12, { ruleId: ruleId('c/d') })], 5)
+    expect(out.findings).toHaveLength(2)
+  })
+
+  it('collapses reworded titles by normalized equality', () => {
+    const out = clusterWithinShard(
+      [mkFinding(10, { title: 'use strict equality' }), mkFinding(12, { title: 'Use Strict Equality!' })],
+      5,
+    )
+    expect(out.findings).toHaveLength(1)
+  })
+
+  it('is a no-op when the window is 0', () => {
+    const input = [mkFinding(10), mkFinding(12)]
+    const out = clusterWithinShard(input, 0)
+    expect(out.findings).toHaveLength(2)
+  })
+
+  it('keeps the highest-severity representative', () => {
+    const out = clusterWithinShard([mkFinding(10, { severity: 'major' }), mkFinding(12, { severity: 'blocker' })], 5)
+    expect(out.findings).toHaveLength(1)
+    expect(out.findings[0]?.severity).toBe('blocker')
+  })
+})
+
+describe('runReview within-shard clustering (RFC N3, end-to-end)', () => {
+  it('collapses reworded near-duplicate findings into one', async () => {
+    const deps = depsFixture({
+      runAgent: async () => ({
+        proposals: [
+          validProposal({ title: 'use strict equality', line: 10, ruleId: 'correctness/eq' }),
+          validProposal({ title: 'Use Strict Equality!', line: 12, ruleId: 'correctness/eq' }),
+        ],
+        patches: [],
+      }),
+    })
+    const result = await runReview(prPayload(), deps, configFixture({ clusterWindow: 5 }))
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(1)
+  })
+})
+
+// --- Context enrichment: neighbor files (RFC C1) ----------------------------
+
+describe('isSafeGlobPattern', () => {
+  it('accepts repo-relative glob patterns', () => {
+    expect(isSafeGlobPattern('src/**/*.ts')).toBe(true)
+  })
+
+  it('rejects absolute, drive, traversal, and empty patterns', () => {
+    expect(isSafeGlobPattern('/etc/x')).toBe(false)
+    expect(isSafeGlobPattern('C:/x')).toBe(false)
+    expect(isSafeGlobPattern('../x')).toBe(false)
+    expect(isSafeGlobPattern('')).toBe(false)
+  })
+
+  it('rejects patterns with too many `**` segments (recursion bound)', () => {
+    expect(isSafeGlobPattern('**/**/**/**/**/**/**/**/**/x')).toBe(false)
+    expect(isSafeGlobPattern('src/**/generated/**/test/**')).toBe(true)
+  })
+})
+
+describe('fetchNeighborContents', () => {
+  // Only `src/index.ts` is changed. `src/a.ts` is a forward import (the change
+  // now depends on it) and `src/b.ts` is a reverse importer (it depends on the
+  // change) — both are *unchanged* neighbors the enrichment should fetch. Files
+  // already in the diff are intentionally excluded — the model already has
+  // their content, so the budget is spent only on what it cannot see.
+  const imports = new Map<string, readonly string[]>([
+    ['src/index.ts', ['./a.ts']],
+    ['src/b.ts', ['./index.ts']],
+  ])
+  const diff: UnifiedDiff = {
+    files: [
+      { path: 'src/index.ts', hunks: [], binary: false },
+    ],
+  }
+
+  it('fetches direct import neighbors (forward and reverse) under budget', async () => {
+    const neighbors = await fetchNeighborContents(GITHUB, gatewayFixture(), targetFixture(), diff, imports, 10_000)
+    expect(neighbors.size).toBe(2)
+    expect(neighbors.get('src/a.ts')).toBe('file content')
+    expect(neighbors.get('src/b.ts')).toBe('file content')
+  })
+
+  it('returns an empty map when no imports are provided', async () => {
+    const neighbors = await fetchNeighborContents(GITHUB, gatewayFixture(), targetFixture(), diff, new Map(), 10_000)
+    expect(neighbors.size).toBe(0)
+  })
+
+  it('respects the byte budget and skips oversize neighbors', async () => {
+    const neighbors = await fetchNeighborContents(GITHUB, gatewayFixture(), targetFixture(), diff, imports, 5)
+    expect(neighbors.size).toBe(0)
+  })
+})
+
+describe('assembleContext neighbor enrichment (RFC C1)', () => {
+  async function setup() {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    return request
+  }
+
+  it('includes a prebuilt neighbor map when one is supplied', async () => {
+    const request = await setup()
+    const bounded = assembleContext(request, diffFixture(), depsFixture(), undefined, new Map([['src/x.ts', 'content']]))
+    expect(bounded.neighbors?.get('src/x.ts')).toBe('content')
+  })
+
+  it('omits neighbors when none are supplied (current behavior)', async () => {
+    const request = await setup()
+    const bounded = assembleContext(request, diffFixture(), depsFixture())
+    expect(bounded.neighbors).toBeUndefined()
+  })
+})
+
+describe('runReview neighbor enrichment (RFC C1, smoke)', () => {
+  it('does not crash when neighbor enrichment is enabled', async () => {
+    const customDiff: UnifiedDiff = {
+      files: [
+        { path: 'src/index.ts', hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, text: '@@ -1,1 +1,1 @@\n-x\n+y\n' }], binary: false },
+        { path: 'src/neighbor.ts', hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, text: '@@ -1,1 +1,1 @@\n-a\n+b\n' }], binary: false },
+      ],
+    }
+    const deps = depsFixture({
+      forges: gatewayFixture({ fetchDiff: async () => customDiff }),
+      shardImports: async () => new Map<string, readonly string[]>([['src/index.ts', ['./neighbor']]]),
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const result = await runReview(prPayload(), deps, configFixture({ neighborBytes: 1000 }))
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(1)
   })
 })
