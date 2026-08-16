@@ -2244,7 +2244,7 @@ describe('assembleContext neighbor enrichment (RFC C1)', () => {
     expect(bounded.neighbors?.get('src/x.ts')).toBe('content')
   })
 
-  it('omits neighbors when none are supplied (current behavior)', () => {
+  it('omits neighbors when none are supplied (current behavior)', async () => {
     const request = await setup()
     const bounded = assembleContext(request, diffFixture(), depsFixture())
     expect(bounded.neighbors).toBeUndefined()
