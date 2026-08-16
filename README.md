@@ -56,13 +56,13 @@
 
 | 方式 | 接入入口 | 适合 |
 |---|---|---|
-| DSH 生态用户 | `dsh plugin add @dshrb/bundle` | 装进既有 profile，与其他插件共享 `ctx` |
+| DSH 生态用户 | `dsh plugin --profile <name> add @dshrb/bundle` | 装进既有 profile，与其他插件共享 `ctx` |
 | GitHub Action | workflow 里 `uses: dshrb/reviewer-action@v0.1.0` | 尝鲜、小仓库 |
 | Daemon | 常驻 webhook 服务 | 大仓库、多仓库、私有部署 |
 
 ```bash
 # DSH 生态用户：装进既有 profile，与其他插件共享 ctx
-dsh plugin add @dshrb/bundle
+dsh plugin --profile web add @dshrb/bundle   # --profile 换成你的 profile 名
 
 # GitHub Action：见 examples/review.yml
 # Daemon：见 docs/08-deployment-modes.md
@@ -116,7 +116,7 @@ packages/tools/          模型可见评审工具（注册在 ctx.tools）
 packages/rules/          评审规则包（baseline）
 packages/drivers/        Action / Webhook / CLI 三种外壳
 packages/probe/          上游签名探针（仅开发期验证契约）
-bundle/                  dsh.bundle 声明，供 dsh plugin add
+bundle/                  dsh.bundle 声明，供 dsh plugin --profile <name> add
 examples/                workflow 模板
 scripts/                 包清单生成（gen-package-manifests.mjs 单一事实来源）
 ```

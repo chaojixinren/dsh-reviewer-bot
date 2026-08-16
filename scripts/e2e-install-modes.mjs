@@ -3,7 +3,7 @@
  * End-to-end verification of the three installation modes documented in the
  * README ("三种安装方式"). Each check exercises a real entrypoint, not a mock:
  *
- *   1. DSH 生态用户  `dsh plugin add @dshrb/bundle`
+ *   1. DSH 生态用户  `dsh plugin --profile <name> add @dshrb/bundle`
  *      The bundle patch (`bundle/cordis.patch.yml`) references plugin packages
  *      by NAME; those names must resolve to loadable Cordis plugins, and the
  *      full chain must boot in a real Cordis container (offline, no credential).
@@ -54,7 +54,7 @@ function check(cond, label, detail) {
 }
 
 // ---------------------------------------------------------------------------
-// Mode 1: DSH 生态用户 — `dsh plugin add @dshrb/bundle`
+// Mode 1: DSH 生态用户 — `dsh plugin --profile <name> add @dshrb/bundle`
 // ---------------------------------------------------------------------------
 
 /** The `- insert:` plugin names, in the patch's layer order. */
@@ -88,7 +88,7 @@ function resolvePackageEntry(name) {
 }
 
 async function verifyProfileMode() {
-  console.log('\n[1/3] DSH 生态用户 — `dsh plugin add @dshrb/bundle`')
+  console.log('\n[1/3] DSH 生态用户 — `dsh plugin --profile <name> add @dshrb/bundle`')
 
   const names = bundlePatchNames()
   check(names.length >= 9, 'bundle patch lists the full plugin chain', `got ${names.length} names`)
@@ -98,7 +98,7 @@ async function verifyProfileMode() {
     const entry = resolvePackageEntry(name)
     const mod = await import(entry)
     // Every patch row is a Cordis plugin: it exports `name` and `apply` (the
-    // DSH launcher boots rows via `ctx.plugin`, same as a `dsh plugin add`).
+    // DSH launcher boots rows via `ctx.plugin`, same as a `dsh plugin --profile <name> add`).
     const isPlugin = typeof mod.name === 'string' && typeof mod.apply === 'function'
     check(isPlugin, `package resolves and is a plugin: ${name}`)
     if (isPlugin) loaded.push(name)

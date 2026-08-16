@@ -1,6 +1,6 @@
 # DSH Reviewer Bot 设计文档
 
-> 状态：M5（发布与收尾）进行中：runtime bootstrap / release build（#50）已接通——`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；M1–M4 已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、bundle 发布、分片并行、跨 PR 记忆，621 例单测）。剩余：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪，仅剩实际 `npm publish`。
+> 状态：M5（发布与收尾）进行中：runtime bootstrap / release build（#50）已接通——`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；M1–M4 已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、bundle 发布、分片并行、跨 PR 记忆，632 例单测）。`forge-github` 写能力（#51）与 LICENSE（#53）已落地；npm 发布（#54）已完成——`@dshrb/bundle` 及其依赖闭包已发布到 npm（`0.1.0`），`dsh plugin --profile <name> add @dshrb/bundle` 线上装包已实测通过。
 > 目标形态：**DSH 原生插件集** + 可选的 GitHub Action / Webhook 守护进程外壳
 
 ## 一句话定位

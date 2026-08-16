@@ -110,7 +110,7 @@ const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
  * `@dshrb/bundle`'s dependencies: `bundle/cordis.patch.yml` references these
  * plugins by NAME, so they (plus `review-core`, the shared domain types every
  * one of them imports at runtime) must exist on the registry for
- * `dsh plugin add @dshrb/bundle` to resolve.
+ * `dsh plugin --profile <name> add @dshrb/bundle` to resolve.
  *
  * Drivers, the local forge, and the signature probe stay `private` — they ship
  * through the Action / Daemon / CLI deployment modes, not through the bundle.

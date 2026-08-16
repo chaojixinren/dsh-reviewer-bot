@@ -2,7 +2,7 @@
   "name": "@dshrb/bundle",
   "version": "0.1.0",
   "type": "module",
-  "description": "DSH bundle: installs DSH Reviewer Bot into a profile with `dsh plugin add`.",
+  "description": "DSH bundle: installs DSH Reviewer Bot into a profile with `dsh plugin --profile <name> add`.",
   "license": "MIT",
   "repository": {
     "type": "git",

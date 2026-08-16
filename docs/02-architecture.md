@@ -138,7 +138,7 @@ flowchart TB
         B1["Webhook 入队"] --> B2["常驻服务"] --> B3["热复用工作区 + 上下文"] --> B4["持续消费队列"]
     end
     subgraph M3["模式 C：DSH Profile 插件（差异化）"]
-        C1["dsh plugin add @dshrb/bundle"] --> C2["装进用户既有 profile"] --> C3["与其他生态插件共享 ctx"]
+        C1["dsh plugin --profile NAME add @dshrb/bundle"] --> C2["装进用户既有 profile"] --> C3["与其他生态插件共享 ctx"]
     end
     subgraph M4["模式 D：本地 CLI（差异化）"]
         D1["dshrb review --local"] --> D2["离线读本地 git diff"] --> D3["终端输出 findings"]

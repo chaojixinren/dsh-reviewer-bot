@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M5（发布与收尾）进行中** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式、M4 生态与规模化均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、`bundle` 发布、分片并行、跨 PR 记忆）。M5 已接通 runtime bootstrap / release build（#50）：`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪（实际 `npm publish` 待触发）。
+项目处于 **M5（发布与收尾）进行中** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式、M4 生态与规模化均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、`bundle` 发布、分片并行、跨 PR 记忆）。M5 已接通 runtime bootstrap / release build（#50）：`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）已完成，`dsh plugin --profile <name> add @dshrb/bundle` 线上装包已实测通过。
 
 动手前请先读：
 
@@ -51,7 +51,7 @@ packages/tools/          模型可见评审工具（注册在 ctx.tools）
 packages/rules/          评审规则包（baseline）
 packages/drivers/        运行形态外壳（action / webhook / cli）
 packages/probe/          上游签名探针（不参与运行时，只在开发期验证契约）
-bundle/                  dsh.bundle 声明，供 `dsh plugin add`
+bundle/                  dsh.bundle 声明，供 `dsh plugin --profile <name> add`
 examples/                workflow 模板
 scripts/                 gen-package-manifests.mjs（包清单单一事实来源）
 ```
@@ -95,14 +95,14 @@ DSH 处于 developer preview，rc 之间可能有破坏性变更，因此**一�
 
 ### 发布到 npm
 
-`@dshrb/bundle` 是配置层（`dsh.bundle.patch` → `cordis.patch.yml`），按**包名**引用插件，因此 `dsh plugin add @dshrb/bundle` 只有在它的依赖闭包全部在 npm 上才可解析。可发布集是 [`scripts/gen-package-manifests.mjs`](./scripts/gen-package-manifests.mjs) 顶部的 `PUBLISHABLE` 常量（`review-core` + 九个插件）；驱动、`forge-local`、`signature-probe` 保持 `private`。
+`@dshrb/bundle` 是配置层（`dsh.bundle.patch` → `cordis.patch.yml`），按**包名**引用插件，因此 `dsh plugin --profile <name> add @dshrb/bundle` 只有在它的依赖闭包全部在 npm 上才可解析。可发布集是 [`scripts/gen-package-manifests.mjs`](./scripts/gen-package-manifests.mjs) 顶部的 `PUBLISHABLE` 常量（`review-core` + 九个插件）；驱动、`forge-local`、`signature-probe` 保持 `private`。
 
 发布要点：
 
 - 可发布包由脚本生成 `license` / `repository` / `publishConfig` 并去掉 `private`；改完重新生成，不要手改各包 `package.json`。
 - `workspace:*` / `workspace:0.1.0` 只在本地链接 workspace；pnpm 在 `publish` 时把它们改写为精确 `0.1.0`，发布物里**不出现 workspace 协议**。
 - 实际发布走 [`.github/workflows/publish.yml`](./.github/workflows/publish.yml)（手动触发）：`check` → `probe` → `build` → `pnpm -r publish`（拓扑序，跳过 `private` 包）。需在仓库 secrets 配置 `NPM_TOKEN`（Automation 类型，`repo` + `publish`）。
-- 首次发布前置：LICENSE（#53）已合入、release build（#50）已接通后再触发；发布后执行 `dsh plugin add @dshrb/bundle` 验证可装入既有 profile。
+- 首次发布前置：LICENSE（#53）已合入、release build（#50）已接通后再触发；发布后执行 `dsh plugin --profile <name> add @dshrb/bundle` 验证可装入既有 profile。
 
 ### 新增 forge provider
 

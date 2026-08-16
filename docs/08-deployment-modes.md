@@ -104,7 +104,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    U["用户"] -->|"dsh plugin add @dshrb/bundle"| P["用户 profile"]
+    U["用户"] -->|"dsh plugin --profile NAME add @dshrb/bundle"| P["用户 profile"]
     P -->|"dsh --profile mine"| RT["DSH 运行时"]
     RT --> DSHRB["dshrb 插件树"]
     RT --> OTHER["生态其他插件<br/>记忆 · 搜索 · 面板 · 通知"]

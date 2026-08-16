@@ -96,7 +96,7 @@ flowchart TB
         UY["cordis.patch.yml<br/>用户自己的层"]
     end
     BP --> BY
-    BY -->|"dsh plugin add @dshrb/bundle"| UP
+    BY -->|"dsh plugin --profile NAME add @dshrb/bundle"| UP
     UP -->|"层序：bundle 层先，用户层后"| RUNTIME["dsh --profile PROFILE_NAME"]
     UY --> RUNTIME
 ```
@@ -121,7 +121,7 @@ flowchart TB
 
 用户已经有一个 profile（`$DSH_HOME/profiles/mine`，声明 `dsh.profile`），只想把评审能力加进去而不重排它：
 
-1. `dsh plugin add @dshrb/bundle` —— 把 bundle 写进该 profile 的 `dsh.profile.bundles[]`，其余配置不动。
+1. `dsh plugin --profile <name> add @dshrb/bundle` —— 把 bundle 写进该 profile 的 `dsh.profile.bundles[]`，其余配置不动。
 2. `dsh --profile mine` —— 启动时 loader 先应用 `bundle/cordis.patch.yml`（bundle 层），再应用用户自己的 patch 层。
 
 装入后的行为由层序叠加决定：
@@ -137,7 +137,7 @@ flowchart LR
     subgraph 三条路径
         A["Action 用户<br/>uses: dshrb/reviewer-action@v0.1.0"]
         B["Daemon 用户<br/>docker run 或 systemd"]
-        C["DSH 生态用户<br/>dsh plugin add @dshrb/bundle"]
+        C["DSH 生态用户<br/>dsh plugin --profile NAME add @dshrb/bundle"]
     end
     A & B & C --> SAME["同一份 review-runtime"]
 ```

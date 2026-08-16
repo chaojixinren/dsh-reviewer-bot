@@ -107,7 +107,7 @@ flowchart LR
 
 ### M2 规则与本地化
 
-- [ ] 第三方规则包能被 `dsh plugin add` 安装并生效
+- [ ] 第三方规则包能被 `dsh plugin --profile <name> add` 安装并生效
 - [ ] `dshrb review --local` 无网络无凭据可跑（用本地 git diff）
 - [ ] `dshrb replay <id>` 产出与线上一致的 findings（同配置同模型下）
 - [ ] `dshrb rules --explain <path>` 正确列出生效规则与来源包
@@ -141,7 +141,7 @@ flowchart LR
 - [ ] `@dsr fix` 通过 GitHub provider 真正创建 commit / 开 PR
 - [x] release CI 产出 bundled entrypoint 并 attach 到 Action（清掉 action.yml 的 TODO）
 - [x] 仓库根目录存在 MIT LICENSE 文件
-- [ ] `@dshrb/bundle` 发布到 npm，`dsh plugin add @dshrb/bundle` 可装入既有 profile
+- [x] `@dshrb/bundle` 发布到 npm，`dsh plugin --profile <name> add @dshrb/bundle` 可装入既有 profile
 
 ## 风险登记
 
@@ -185,8 +185,8 @@ M3 已完成 4/4：`sandbox 隔离与 mutate 阶段`（PR #38，#33）、`guard 
 
 M4 已完成 5/5：`bundle 发布`（#42）已落地——`@dshrb/bundle` 去掉 `private` 并补齐 `license` / `repository` / `publishConfig` 等发布元数据，`dependencies` 的 `workspace:*` 替换为精确版本；`cordis.patch.yml` 暴露完整意图集与写模式开关（`allowWrite` 保持 fail-closed 默认 `false`，新增 `enableDiagnose` 开关），并用装配/共存/卸载单测在真实 Cordis 容器里验证「与生态插件共享同一个 `ctx` 互不踩踏」。分片并行（#47）、forge-gitlab（#48，iid 归一 + 契约套件）、driver-webhook（#45）、跨 PR 记忆（#52：`findingMemoryKey` 跨 PR 身份 + `@dsr accept` / `@dsr forget` 记录/撤销已决议例外 + 确定性抑制）均已落地。
 
-M5 发布与收尾（4/4 已合入，仅剩发布动作）：runtime bootstrap + release build（#50）已接通——`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI（`.github/workflows/release.yml`）构建 bundled entrypoint 并 attach（docs/05-packaging.md）；`forge-github` 写能力（#51）与 LICENSE（#53，PR #55）已落地；npm 发布（#54）的发布管线已就绪——`scripts/gen-package-manifests.mjs` 将 bundle 依赖闭包（`review-core` 与九个插件）标记为可发布（去掉 `private`，补 `license` / `repository` / `publishConfig`），新增 `.github/workflows/publish.yml` 按拓扑序构建并发布，`workspace:*` 由 pnpm 在发布时改写为精确 `0.1.0`。剩余 #54 的实际 `npm publish`（publish 工作流已就绪，待手动触发，需 `NPM_TOKEN`）。
+M5 发布与收尾（4/4 已合入，发布已完成）：runtime bootstrap + release build（#50）已接通——`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI（`.github/workflows/release.yml`）构建 bundled entrypoint 并 attach（docs/05-packaging.md）；`forge-github` 写能力（#51）与 LICENSE（#53，PR #55）已落地；npm 发布（#54）已完成——`scripts/gen-package-manifests.mjs` 将 bundle 依赖闭包（`review-core` 与九个插件）标记为可发布（去掉 `private`，补 `license` / `repository` / `publishConfig`），`.github/workflows/publish.yml` 按拓扑序发布，`workspace:*` 由 pnpm 在发布时改写为精确 `0.1.0`；`@dshrb/bundle` 及其依赖闭包已全部发布到 npm（`0.1.0`），`dsh plugin --profile <name> add @dshrb/bundle` 线上装包已实测通过。
 
-已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver` + 共享 provider 契约测试套件（`runForgeConformance`）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider（含 `commitPatches` / `openPullRequest` 写能力，Git Data API）、`forge-gitlab` provider（REST v4，iid 归一 + `X-Gitlab-Token` 常量时间校验）、`tool-review` 只读工具 + `propose_patch`、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `mutate` / `publish` / `report`）、`ctx.tools.guard()` 写路径单调硬红线、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`、`driver-webhook`、跨 PR 记忆（`findingMemoryKey` 跨 PR 身份 + `ReviewMemory` seam + 确定性抑制 + `@dsr accept` / `@dsr forget` + 版本化记忆档案）、`runtime-bootstrap`（runtime bootstrap + release build，`scripts/build-release.mjs`）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 19 个测试文件、621 例单测全绿。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver` + 共享 provider 契约测试套件（`runForgeConformance`）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider（含 `commitPatches` / `openPullRequest` 写能力，Git Data API）、`forge-gitlab` provider（REST v4，iid 归一 + `X-Gitlab-Token` 常量时间校验）、`tool-review` 只读工具 + `propose_patch`、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `mutate` / `publish` / `report`）、`ctx.tools.guard()` 写路径单调硬红线、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`、`driver-webhook`、跨 PR 记忆（`findingMemoryKey` 跨 PR 身份 + `ReviewMemory` seam + 确定性抑制 + `@dsr accept` / `@dsr forget` + 版本化记忆档案）、`runtime-bootstrap`（runtime bootstrap + release build，`scripts/build-release.mjs`）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 19 个测试文件、632 例单测全绿。
 
-待办（发布动作，非代码）：npm 发布（#54）尚未实际 `npm publish`（publish 工作流已就绪，需 `NPM_TOKEN`）；`dsh plugin add @dshrb/bundle` 的线上验证待发布后执行。
+发布动作已收尾：npm 发布（#54）已实际 `npm publish`——`review-core` + 九个插件 + `@dshrb/bundle` 共 11 个包已在 npm 上（`0.1.0`）；`dsh plugin --profile <name> add @dshrb/bundle` 的线上验证已执行通过（装入既有 profile 后 `dsh.profile.bundles` 正确 reconcile，`--dump-config` 可见 bundle 层九个插件按序挂载）。
