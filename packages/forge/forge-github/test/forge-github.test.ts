@@ -6,7 +6,7 @@ import type { Anchor, Finding, ReviewTarget } from '@dshrb/review-core'
 import { publishIdempotencyKey, runForgeConformance } from '@dshrb/forge'
 import type { ConformanceFactory } from '@dshrb/forge'
 import {
-  CAPABILITIES, GitHubApiError, ForgeUnimplementedError, createGitHubGateway,
+  CAPABILITIES, GitHubApiError, applyPatch, createGitHubGateway,
   extractIdempotencyKey, mapPermission, parseHunks, stickyMarker,
 } from '../src/index.ts'
 import type { Config, FetchLike } from '../src/index.ts'
@@ -99,13 +99,13 @@ describe('capability advertisement', () => {
     expect(gateway.capabilities).toEqual(CAPABILITIES)
   })
 
-  it('refuses M3 mutations explicitly instead of reporting a success it did not perform', async () => {
+  it('implements the mutation sink instead of refusing it', async () => {
     const gateway = createGitHubGateway(config(), stubFetch([]))
     await expect(gateway.commitPatches('acme/widgets', 'main', [], 'msg'))
-      .rejects.toThrow(ForgeUnimplementedError)
+      .rejects.toThrow(/received no patches/)
     await expect(gateway.openPullRequest({
       repo: 'acme/widgets', headBranch: 'fix', baseBranch: 'main', title: 't', body: 'b',
-    })).rejects.toThrow(/E_FORGE_M3_UNIMPLEMENTED|not implemented/)
+    })).rejects.toThrow(GitHubApiError)
   })
 })
 
@@ -705,13 +705,129 @@ describe('transport', () => {
   })
 })
 
+describe('mutation sink', () => {
+  it('creates a commit with a new file when the base file is missing', async () => {
+    const stub = stubFetch([
+      { match: '/commits/main', json: { sha: 'a'.repeat(40), commit: { tree: { sha: 'b'.repeat(40) } } } },
+      { match: '/contents/src/app.ts', status: 404, text: 'Not Found' },
+      { match: '/git/blobs', method: 'POST', json: { sha: 'c'.repeat(40) } },
+      { match: '/git/trees', method: 'POST', json: { sha: 'd'.repeat(40) } },
+      { match: '/git/commits', method: 'POST', json: { sha: 'e'.repeat(40) } },
+      { match: '/git/refs', method: 'POST', json: {} },
+      { match: '/repos/acme/widgets', json: { default_branch: 'main' } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+
+    const sha = await gateway.commitPatches('acme/widgets', 'fix/1', [
+      { path: 'src/app.ts', diff: '@@ -0,0 +1,2 @@\n+hello\n+world' },
+    ], 'apply suggestions')
+
+    expect(sha).toBe('e'.repeat(40))
+    const treePost = stub.calls.find((call) => call.url.includes('/git/trees'))
+    expect(treePost?.body).toMatchObject({
+      base_tree: 'b'.repeat(40),
+      tree: [{ path: 'src/app.ts', mode: '100644', type: 'blob', sha: 'c'.repeat(40) }],
+    })
+    const commitPost = stub.calls.find((call) => call.url.includes('/git/commits'))
+    expect(commitPost?.body).toMatchObject({
+      message: 'apply suggestions', tree: 'd'.repeat(40), parents: ['a'.repeat(40)],
+    })
+    const refPost = stub.calls.find((call) => call.url.includes('/git/refs'))
+    expect(refPost?.body).toMatchObject({ ref: 'refs/heads/fix/1', sha: 'e'.repeat(40) })
+  })
+
+  it('updates an existing file by applying the diff to its base content', async () => {
+    const stub = stubFetch([
+      { match: '/commits/main', json: { sha: 'a'.repeat(40), commit: { tree: { sha: 'b'.repeat(40) } } } },
+      { match: '/contents/src/app.ts', text: 'aaa\nccc\n' },
+      { match: '/git/blobs', method: 'POST', json: { sha: 'c'.repeat(40) } },
+      { match: '/git/trees', method: 'POST', json: { sha: 'd'.repeat(40) } },
+      { match: '/git/commits', method: 'POST', json: { sha: 'e'.repeat(40) } },
+      { match: '/git/refs', method: 'POST', json: {} },
+      { match: '/repos/acme/widgets', json: { default_branch: 'main' } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+    await gateway.commitPatches('acme/widgets', 'fix/1', [
+      { path: 'src/app.ts', diff: '@@ -1,2 +1,2 @@\n-aaa\n+bbb' },
+    ], 'apply suggestions')
+    const blobPost = stub.calls.find((call) => call.url.includes('/git/blobs'))
+    expect(blobPost?.body).toMatchObject({ content: 'bbb\nccc\n', encoding: 'utf-8' })
+  })
+
+  it('folds multiple patches on the same file into one cumulative tree entry', async () => {
+    const stub = stubFetch([
+      { match: '/commits/main', json: { sha: 'a'.repeat(40), commit: { tree: { sha: 'b'.repeat(40) } } } },
+      { match: '/contents/src/app.ts', text: 'aaa\nbbb\n' },
+      { match: '/git/blobs', method: 'POST', json: { sha: 'c'.repeat(40) } },
+      { match: '/git/trees', method: 'POST', json: { sha: 'd'.repeat(40) } },
+      { match: '/git/commits', method: 'POST', json: { sha: 'e'.repeat(40) } },
+      { match: '/git/refs', method: 'POST', json: {} },
+      { match: '/repos/acme/widgets', json: { default_branch: 'main' } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+    await gateway.commitPatches('acme/widgets', 'fix/1', [
+      { path: 'src/app.ts', diff: '@@ -1,1 +1,1 @@\n-aaa\n+AAA' },
+      { path: 'src/app.ts', diff: '@@ -2,1 +2,1 @@\n-bbb\n+BBB' },
+    ], 'apply suggestions')
+    // One blob, one tree entry — never duplicate entries for the same path.
+    expect(stub.calls.filter((call) => call.url.includes('/git/blobs'))).toHaveLength(1)
+    const treePost = stub.calls.find((call) => call.url.includes('/git/trees'))
+    expect(treePost?.body).toMatchObject({ tree: [{ path: 'src/app.ts' }] })
+  })
+
+  it('rejects a patch that does not line up with the base content before creating a blob', async () => {
+    const stub = stubFetch([
+      { match: '/commits/main', json: { sha: 'a'.repeat(40), commit: { tree: { sha: 'b'.repeat(40) } } } },
+      { match: '/contents/src/app.ts', text: 'zzz\n' },
+      { match: '/git/blobs', method: 'POST', json: { sha: 'c'.repeat(40) } },
+      { match: '/repos/acme/widgets', json: { default_branch: 'main' } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+    await expect(gateway.commitPatches('acme/widgets', 'fix/1', [
+      { path: 'src/app.ts', diff: '@@ -1,1 +1,1 @@\n-aaa\n+bbb' },
+    ], 'apply suggestions')).rejects.toThrow(/does not apply/)
+    expect(stub.calls.filter((call) => call.url.includes('/git/blobs'))).toHaveLength(0)
+  })
+
+  it('rejects an empty patch set before issuing any request', async () => {
+    const stub = stubFetch([])
+    const gateway = createGitHubGateway(config(), stub)
+    await expect(gateway.commitPatches('acme/widgets', 'fix/1', [], 'msg'))
+      .rejects.toThrow(/received no patches/)
+    expect(stub.calls).toHaveLength(0)
+  })
+
+  it('opens a pull request from head to base branch', async () => {
+    const stub = stubFetch([
+      { match: '/pulls', method: 'POST', json: { html_url: 'https://github.com/acme/widgets/pull/12' } },
+    ])
+    const gateway = createGitHubGateway(config(), stub)
+    const url = await gateway.openPullRequest({
+      repo: 'acme/widgets', headBranch: 'fix/1', baseBranch: 'main', title: 't', body: 'b',
+    })
+    expect(url).toBe('https://github.com/acme/widgets/pull/12')
+    expect(stub.calls[0]?.body).toMatchObject({ head: 'fix/1', base: 'main', title: 't', body: 'b' })
+  })
+})
+
+describe('applyPatch', () => {
+  it('applies a replace hunk and a pure insertion', () => {
+    expect(applyPatch('aaa\nccc\n', '@@ -1,2 +1,2 @@\n-aaa\n+bbb')).toEqual({
+      ok: true, content: 'bbb\nccc\n',
+    })
+    expect(applyPatch('', '@@ -0,0 +1,2 @@\n+hello\n+world')).toEqual({
+      ok: true, content: 'hello\nworld\n',
+    })
+  })
+
+  it('fails when a hunk does not line up with the content', () => {
+    const result = applyPatch('zzz\n', '@@ -1,1 +1,1 @@\n-aaa\n+bbb')
+    expect(result.ok).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Shared provider conformance suite
-//
-// `forge-github` advertises `mutation-sink` but does not implement it yet
-// (it throws `ForgeUnimplementedError`), so that group is listed as
-// `unimplemented` and skipped — the same explicit M3 boundary the gateway
-// itself reports.
 // ---------------------------------------------------------------------------
 
 const githubConformanceFactory: ConformanceFactory = (ctx) => {
@@ -784,6 +900,18 @@ const githubConformanceFactory: ConformanceFactory = (ctx) => {
     case 'log':
       routes.push({ match: '/actions/jobs/123/logs', text: 'log line' })
       break
+    case 'mutation':
+      routes.push(
+        { match: '/commits/main', json: { sha: 'a'.repeat(40), commit: { tree: { sha: 'b'.repeat(40) } } } },
+        { match: '/contents/src/app.ts', status: 404, text: 'Not Found' },
+        { match: '/git/blobs', method: 'POST', json: { sha: 'c'.repeat(40) } },
+        { match: '/git/trees', method: 'POST', json: { sha: 'd'.repeat(40) } },
+        { match: '/git/commits', method: 'POST', json: { sha: 'e'.repeat(40) } },
+        { match: '/git/refs', method: 'POST', json: {} },
+        { match: '/pulls', method: 'POST', json: { html_url: 'https://github.com/acme/widgets/pull/12' } },
+        { match: '/repos/acme/widgets', json: { default_branch: 'main' } },
+      )
+      break
     default:
       throw new Error(`unexpected scenario ${ctx.scenario}`)
   }
@@ -794,7 +922,6 @@ const githubConformanceFactory: ConformanceFactory = (ctx) => {
 describe('forge conformance', () => {
   const cases = runForgeConformance(githubConformanceFactory, {
     capabilities: CAPABILITIES,
-    unimplemented: ['mutation-sink'],
     target: TARGET,
     botId: BOT_ID,
     marker: 'summary',
