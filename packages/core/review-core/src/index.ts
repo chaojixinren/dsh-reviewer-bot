@@ -669,7 +669,9 @@ export function isSafeGlobPattern(pattern: string): boolean {
   if (pattern.startsWith('/') || pattern.startsWith('\\') || /^[a-zA-Z]:/.test(pattern)) {
     return false
   }
-  return !pattern.split('/').includes('..')
+  // Split on either slash, matching `isSafeRelativePath`, so a backslash-based
+  // `..` traversal (`..\x`, `src\..\..\etc`) is also rejected for parity.
+  return !pattern.split(/[/\\]/).includes('..')
 }
 
 // ---------------------------------------------------------------------------
