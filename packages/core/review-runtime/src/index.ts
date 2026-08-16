@@ -2597,7 +2597,12 @@ export async function runReview(
     let bounded = intent === 'diagnose'
       ? await assembleDiagnoseContext(request, diff, deps, imports, undefined)
       : assembleContext(request, diff, deps, imports, undefined)
-    if (bounded.rules.length > 0 && config.neighborBytes !== undefined && config.neighborBytes > 0 && imports !== undefined && imports.size > 0) {
+    // Neighbor enrichment (RFC C1) is review-only: the `diagnose` context is
+    // assembled from failed CI check logs rather than source contents, so
+    // fetching caller/callee file bodies there would be wasted budget — and it
+    // would also re-invoke `assembleDiagnoseContext`/`listFailedChecks` a second
+    // time. Gate it out for `diagnose` so that path is assembled exactly once.
+    if (bounded.rules.length > 0 && config.neighborBytes !== undefined && config.neighborBytes > 0 && imports !== undefined && imports.size > 0 && intent !== 'diagnose') {
       neighbors = await fetchNeighborContents(event.forgeId, deps.forges, event.target, diff, imports, config.neighborBytes)
       bounded = intent === 'diagnose'
         ? await assembleDiagnoseContext(request, diff, deps, imports, neighbors)
@@ -3174,12 +3179,37 @@ function createShardImports(ctx: Context): NonNullable<StageDeps['shardImports']
  * byte budget is the only cost control. Returns an empty map when no imports
  * are available, so callers that pass an empty `imports` get no enrichment.
  */
+/**
+ * Turns an (often extensionless) import target into a real repo path when the
+ * real path is known — a changed file or an import-map key. `resolveLocalImport`
+ * returns `src/a` (no extension); if `src/a.ts` is a known path we return that so
+ * the downstream `fetchFile` resolves correctly instead of fetching a
+ * non-existent extensionless path. Falls back to the candidate unchanged when no
+ * match exists, preserving the previous best-effort behavior.
+ */
+function toRealPath(candidate: string, known: ReadonlySet<string>): string {
+  if (known.has(candidate)) return candidate
+  for (const ext of IMPORT_EXTENSIONS) {
+    const withExt = candidate + ext
+    if (known.has(withExt)) return withExt
+  }
+  for (const ext of IMPORT_EXTENSIONS) {
+    const withIndex = `${candidate}/index${ext}`
+    if (known.has(withIndex)) return withIndex
+  }
+  return candidate
+}
+
 export async function fetchNeighborContents(
   forgeId: ForgeId, forges: ForgeRegistry, target: ReviewTarget, diff: UnifiedDiff,
   imports: ReadonlyMap<string, readonly string[]>, maxBytes: number,
 ): Promise<Map<string, string>> {
   const diffSource = forges.require<DiffSource>(forgeId, ['diff-source'])
   const changed = new Set(diff.files.map((file) => file.path))
+  // Every path we could resolve a neighbor to: the changed files plus the
+  // import-map keys. Used to turn an extensionless import target (`src/a`) into
+  // its real on-disk path (`src/a.ts`) before fetching.
+  const known = new Set<string>([...changed, ...imports.keys()])
   const wanted = new Set<string>()
   for (const file of changed) {
     for (const spec of imports.get(file) ?? []) {
@@ -3194,7 +3224,7 @@ export async function fetchNeighborContents(
       if (resolved === undefined || resolved === file || changedPathMatch(resolved, changed) !== undefined) {
         continue
       }
-      wanted.add(resolved)
+      wanted.add(toRealPath(resolved, known))
     }
     for (const [importer, specs] of imports) {
       // Skip self and files already in the diff — the model already has them,
@@ -3205,7 +3235,7 @@ export async function fetchNeighborContents(
         // The importer pulls in `file`; extension-tolerant so `./index` matches
         // the real `src/index.ts` even without an extension.
         if (resolved !== undefined && changedPathMatch(resolved, changed) !== undefined) {
-          wanted.add(importer)
+          wanted.add(toRealPath(importer, known))
           break
         }
       }
