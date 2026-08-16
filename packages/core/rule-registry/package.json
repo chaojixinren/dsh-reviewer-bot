@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/rule-registry",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Declarative review rule pack registry with glob matching.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/core/rule-registry"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

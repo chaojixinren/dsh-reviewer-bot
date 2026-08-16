@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/review-core",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Domain types and invariants for review requests, findings, and verdicts.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/core/review-core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

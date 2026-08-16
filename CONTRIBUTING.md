@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M4（生态与规模化）已完成 4/4** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。M4 已落地 bundle 发布、forge-gitlab（iid 归一 + 契约套件）、分片并行、driver-webhook；剩余跨 PR 记忆（#52）。M5 发布与收尾进行中：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，剩余 runtime bootstrap / release build（#50）、npm 发布（#54）。
+项目处于 **M4（生态与规模化）已完成 4/4** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。M4 已落地 bundle 发布、forge-gitlab（iid 归一 + 契约套件）、分片并行、driver-webhook；剩余跨 PR 记忆（#52）。M5 发布与收尾进行中：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪（实际 `npm publish` 待触发），剩余 runtime bootstrap / release build（#50）。
 
 动手前请先读：
 
@@ -92,6 +92,17 @@ DSH 处于 developer preview，rc 之间可能有破坏性变更，因此**一�
 3. 更新 [`docs/09-roadmap.md`](./docs/09-roadmap.md) 的兼容矩阵。
 
 策略：跟随上游 rc 但不追最新，滞后一个 rc 以规避回归。
+
+### 发布到 npm
+
+`@dshrb/bundle` 是配置层（`dsh.bundle.patch` → `cordis.patch.yml`），按**包名**引用插件，因此 `dsh plugin add @dshrb/bundle` 只有在它的依赖闭包全部在 npm 上才可解析。可发布集是 [`scripts/gen-package-manifests.mjs`](./scripts/gen-package-manifests.mjs) 顶部的 `PUBLISHABLE` 常量（`review-core` + 九个插件）；驱动、`forge-local`、`signature-probe` 保持 `private`。
+
+发布要点：
+
+- 可发布包由脚本生成 `license` / `repository` / `publishConfig` 并去掉 `private`；改完重新生成，不要手改各包 `package.json`。
+- `workspace:*` / `workspace:0.1.0` 只在本地链接 workspace；pnpm 在 `publish` 时把它们改写为精确 `0.1.0`，发布物里**不出现 workspace 协议**。
+- 实际发布走 [`.github/workflows/publish.yml`](./.github/workflows/publish.yml)（手动触发）：`check` → `probe` → `build` → `pnpm -r publish`（拓扑序，跳过 `private` 包）。需在仓库 secrets 配置 `NPM_TOKEN`（Automation 类型，`repo` + `publish`）。
+- 首次发布前置：LICENSE（#53）已合入、release build（#50）已接通后再触发；发布后执行 `dsh plugin add @dshrb/bundle` 验证可装入既有 profile。
 
 ### 新增 forge provider
 
