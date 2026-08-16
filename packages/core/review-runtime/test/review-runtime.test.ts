@@ -2024,7 +2024,7 @@ describe('suppressResolved wildcard', () => {
     const finding = mkFinding({ ruleId: ruleId('whatever/rule'), anchor: { path: 'src/a.ts', line: 10, side: 'right', anchored: true } })
     // An empty/absent ruleId on a glob means "suppress any rule" — represented
     // by omitting the branded `ruleId` (the matcher treats `?? ''` as "any").
-    const exception = resolvedFixture({ pathGlob: 'src/**', ruleId: undefined, path: '', title: '' })
+    const exception = resolvedFixture({ pathGlob: 'src/**', path: '', title: '' })
     expect(suppressResolved([finding], [exception]).suppressed).toHaveLength(1)
   })
 })
