@@ -3187,18 +3187,24 @@ export async function fetchNeighborContents(
       // Inject the callee even when it is NOT in the diff — an unchanged module
       // whose signature/interface the change now depends on is exactly what the
       // model cannot otherwise see. Skip self and files already in the diff to
-      // avoid re-fetching content the model already has. The byte budget bounds
-      // the total cost.
-      if (resolved !== undefined && resolved !== file && !changed.has(resolved)) {
-        wanted.add(resolved)
+      // avoid re-fetching content the model already has. Matching is
+      // extension-tolerant (`changedPathMatch`) so `./a` / `./index` resolve to
+      // the real `src/a.ts` / `src/index.ts` even though `resolveLocalImport`
+      // returns an extensionless path.
+      if (resolved === undefined || resolved === file || changedPathMatch(resolved, changed) !== undefined) {
+        continue
       }
+      wanted.add(resolved)
     }
     for (const [importer, specs] of imports) {
       // Skip self and files already in the diff — the model already has them,
       // so fetching a changed importer as a "neighbor" would waste the budget.
-      if (importer === file || changed.has(importer)) continue
+      if (importer === file || changedPathMatch(importer, changed) !== undefined) continue
       for (const spec of specs) {
-        if (resolveLocalImport(importer, spec) === file) {
+        const resolved = resolveLocalImport(importer, spec)
+        // The importer pulls in `file`; extension-tolerant so `./index` matches
+        // the real `src/index.ts` even without an extension.
+        if (resolved !== undefined && changedPathMatch(resolved, changed) !== undefined) {
           wanted.add(importer)
           break
         }
