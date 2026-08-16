@@ -53,7 +53,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           fetch-depth: 1
-      - uses: dshrb/reviewer-action@v1
+      - uses: dshrb/reviewer-action@v0.1.0
         with:
           deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
 ```

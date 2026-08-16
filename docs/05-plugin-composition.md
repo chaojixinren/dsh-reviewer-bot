@@ -135,7 +135,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph 三条路径
-        A["Action 用户<br/>uses: dshrb/reviewer-action@v1"]
+        A["Action 用户<br/>uses: dshrb/reviewer-action@v0.1.0"]
         B["Daemon 用户<br/>docker run 或 systemd"]
         C["DSH 生态用户<br/>dsh plugin add @dshrb/bundle"]
     end

@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 1
 
       - id: review
-        uses: dshrb/reviewer-action@v1
+        uses: dshrb/reviewer-action@v0.1.0
         with:
           deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
 
