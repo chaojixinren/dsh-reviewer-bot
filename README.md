@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/milestone-M2%20完成-1D76DB" alt="milestone: M2" />
 </p>
 
-> **当前状态：M4（生态与规模化）已完成 4/4。** M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 四级判定、`forge-github` / `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`），配 583 例单测（18 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M4 已交付：`bundle` 发布、`forge-gitlab`、分片并行、`driver-webhook`；剩余跨 PR 记忆（未拆 issue）。
+> **当前状态：M4（生态与规模化）已完成 4/4。** M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 四级判定、`forge-github` / `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`），配 583 例单测（18 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M4 已交付：`bundle` 发布、`forge-gitlab`、分片并行、`driver-webhook`；剩余跨 PR 记忆（#52）。M5 发布与收尾尚未开始：runtime bootstrap / release build、`forge-github` 写能力、LICENSE、npm 发布。
 
 ## 为什么不是又一个 CI Action
 
