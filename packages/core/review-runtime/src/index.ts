@@ -2604,6 +2604,21 @@ export interface AgentLoopServices {
 }
 
 /**
+ * Reads the runtime's default model selection, or `undefined` when no
+ * `agentDefaultModel` service is mounted. The agent-loop requires a
+ * provider/model on every request; without them `buildRequest` throws
+ * "no provider/model" and the turn silently ends with zero findings (the
+ * error is contained inside the loop driver). Pin this onto every agent,
+ * mirroring the one-shot headless driver's `agentOptions` wiring.
+ */
+function readDefaultModel(ctx: Context): { provider: string; model: string } | undefined {
+  const defaultModel = ctx.get('agentDefaultModel') as
+    | { currentSelection?: () => { provider: string; model: string } }
+    | undefined
+  return defaultModel?.currentSelection?.()
+}
+
+/**
  * The default agent driver: creates an agent scoped to the resolved trust
  * level, binds the review tools to the bounded context, collects
  * `report_finding` proposals from `session/event`, and returns them.
@@ -2620,8 +2635,13 @@ export function createRunAgent(ctx: Context, services: AgentLoopServices): Stage
     const session = ctx.sessions.prepare()
     const diagnose = bounded.request.intent === 'diagnose'
 
+    const selection = readDefaultModel(ctx)
+
     const handle = await ctx.agents.create({
       sessionId: session.id,
+      ...(selection === undefined
+        ? {}
+        : { agentOptions: { provider: selection.provider, model: selection.model } }),
       setup: (agentCtx) => {
         agentCtx.effect(() => trustPolicy.restrictScope(agentCtx))
 
@@ -2751,7 +2771,13 @@ function createShardRunner(ctx: Context): NonNullable<StageDeps['runShard']> {
       throw new Error('shard fan-out requires a registered ctx.subagents provider')
     }
     const session = ctx.sessions.prepare()
-    const handle = await ctx.agents.create({ sessionId: session.id })
+    const selection = readDefaultModel(ctx)
+    const handle = await ctx.agents.create({
+      sessionId: session.id,
+      ...(selection === undefined
+        ? {}
+        : { agentOptions: { provider: selection.provider, model: selection.model } }),
+    })
     try {
       const [shard] = bounded.shards
       const message = createUserMessage({
