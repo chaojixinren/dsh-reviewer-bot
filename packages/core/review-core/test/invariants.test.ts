@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   NO_CAPABILITIES,
+  SEVERITY_BADGE_COLOR,
   SEVERITY_ORDER,
   anchorAt,
   anchorFallback,
+  buildFindingBadge,
   capabilities,
   changeRequestId,
   commentId,
@@ -12,6 +14,7 @@ import {
   countBlockers,
   downgradeSeverity,
   effectiveSeverity,
+  findingCategory,
   findingDedupeKey,
   findingId,
   findingInvariantViolation,
@@ -112,6 +115,65 @@ describe('severity ordering', () => {
   it('floors downgrade at info', () => {
     expect(downgradeSeverity('blocker')).toBe('major')
     expect(downgradeSeverity('info')).toBe('info')
+  })
+})
+
+describe('finding badge', () => {
+  it('maps every severity to a shields.io color', () => {
+    expect(Object.keys(SEVERITY_BADGE_COLOR).sort()).toEqual([...SEVERITY_ORDER].sort())
+    for (const color of Object.values(SEVERITY_BADGE_COLOR)) {
+      expect(color).toMatch(/^[a-z]+$/)
+    }
+  })
+
+  it('renders category-severity when the ruleId has a category prefix', () => {
+    const finding = accept(proposal({ severity: 'major', ruleId: 'security/secret-in-source' }))
+    expect(buildFindingBadge(finding)).toBe(
+      '![security · major](https://img.shields.io/badge/security-major-red)',
+    )
+  })
+
+  it('renders severity only when there is no ruleId', () => {
+    const finding = accept(proposal({ severity: 'minor' }))
+    expect(buildFindingBadge(finding)).toBe(
+      '![minor](https://img.shields.io/badge/minor--orange)',
+    )
+  })
+
+  it('doubles a hyphen in a category so shields.io keeps it in the label', () => {
+    // `api-contract` is a real baseline category: a bare `-` would 404 or
+    // re-split into label=api, message=contract.
+    const finding = accept(proposal({ severity: 'minor', ruleId: 'api-contract/schema-change' }))
+    expect(buildFindingBadge(finding)).toBe(
+      '![api-contract · minor](https://img.shields.io/badge/api--contract-minor-orange)',
+    )
+  })
+
+  it('does not invent a category from a slash-less or empty ruleId', () => {
+    expect(findingCategory(undefined)).toBeUndefined()
+    expect(findingCategory(ruleId('no-oob'))).toBeUndefined()
+    expect(findingCategory(ruleId('/leading-empty'))).toBeUndefined()
+    expect(findingCategory(ruleId('security/secret-in-source'))).toBe('security')
+  })
+
+  it('escapes markdown-special and URL-special characters', () => {
+    // A third-party ruleId is only non-empty-branded, not charset-restricted.
+    const bracket = accept(proposal({ severity: 'major', ruleId: 'sec[x/y' }))
+    expect(buildFindingBadge(bracket)).toBe(
+      '![sec\\[x · major](https://img.shields.io/badge/sec%5Bx-major-red)',
+    )
+
+    // `)` closes a Markdown link destination, so it must be percent-encoded.
+    const paren = accept(proposal({ severity: 'major', ruleId: 'foo)bar/rule' }))
+    expect(buildFindingBadge(paren)).toBe(
+      '![foo)bar · major](https://img.shields.io/badge/foo%29bar-major-red)',
+    )
+
+    // `_` is a shields.io separator; `\` and `]` are structural in the alt.
+    const underscore = accept(proposal({ severity: 'nit', ruleId: 'sec_ure/rule' }))
+    expect(buildFindingBadge(underscore)).toBe(
+      '![sec_ure · nit](https://img.shields.io/badge/sec__ure-nit-green)',
+    )
   })
 })
 

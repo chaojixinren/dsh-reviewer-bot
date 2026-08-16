@@ -16,7 +16,7 @@ import type {
   UnifiedDiff,
 } from '@dshrb/forge'
 import {
-  commentId as brandCommentId, commitSha, forgeId, isAnchored, isSafeRelativePath,
+  buildFindingBadge, commentId as brandCommentId, commitSha, forgeId, isAnchored, isSafeRelativePath,
 } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, Finding, ForgeId, Patch, ReviewTarget,
@@ -392,7 +392,9 @@ function hasStickyMarkerOnFirstLine(body: unknown, marker: string): boolean {
 }
 
 function findingCommentBody(finding: Finding): string {
-  return `**${finding.severity}**: ${finding.title}\n\n${finding.body}`
+  // The severity moves into the shields.io badge (color + alt text carry it),
+  // so the title no longer repeats it inline.
+  return `${buildFindingBadge(finding)}\n\n**${finding.title}**\n\n${finding.body}`
 }
 
 // ---------------------------------------------------------------------------
