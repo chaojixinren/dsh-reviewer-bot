@@ -1,7 +1,5 @@
 <p align="center"><img src="./public/banner.svg" alt="DSH Reviewer Bot" /></p>
 
-<p align="center"><img src="./public/logo.png" width="120" alt="DSH Reviewer Bot logo" /></p>
-
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
 
 <p align="center">
