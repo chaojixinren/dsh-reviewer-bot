@@ -12,10 +12,16 @@
   <img src="https://img.shields.io/badge/Node-22.19%2B%20%7C%2024%2B-339933" alt="Node 22.19+ | 24+" />
   <img src="https://img.shields.io/badge/TypeScript-5.9.2-3178c6" alt="TypeScript 5.9.2" />
   <img src="https://img.shields.io/badge/pnpm-11.7.0-f69220" alt="pnpm 11.7.0" />
-  <img src="https://img.shields.io/badge/milestone-M5%20完成-1D76DB" alt="milestone: M5" />
 </p>
-
-> **当前状态：M5（发布与收尾）进行中。** M1 只读评审闭环、M2 规则与本地化、M3 写模式、M4 生态与规模化已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 四级判定、`forge-github` / `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、`bundle` 发布、分片并行、跨 PR 记忆、`forge-github` 写能力），配 621 例单测（19 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M5 已接通 runtime bootstrap + release build：`@dshrb/runtime-bootstrap` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；LICENSE（#53）已落地，npm 发布（#54）管线已就绪。剩余：实际 `npm publish`。
+<div align="center">
+  <a href="https://dshfind.com/zh/plugins/chaojixinren/dsh-reviewer-bot?ref=badge">
+    <img
+      alt="dshfind 展示卡"
+      src="https://dshfind.com/api/card/chaojixinren/dsh-reviewer-bot?lang=zh"
+      width="440"
+    />
+  </a>
+</div>
 
 ## 为什么不是又一个 CI Action
 
