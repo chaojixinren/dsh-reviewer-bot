@@ -2604,9 +2604,9 @@ export async function runReview(
     // time. Gate it out for `diagnose` so that path is assembled exactly once.
     if (bounded.rules.length > 0 && config.neighborBytes !== undefined && config.neighborBytes > 0 && imports !== undefined && imports.size > 0 && intent !== 'diagnose') {
       neighbors = await fetchNeighborContents(event.forgeId, deps.forges, event.target, diff, imports, config.neighborBytes)
-      bounded = intent === 'diagnose'
-        ? await assembleDiagnoseContext(request, diff, deps, imports, neighbors)
-        : assembleContext(request, diff, deps, imports, neighbors)
+      // Reaches here only for non-`diagnose` intents (see the guard above), so
+      // the neighbor-enriched context is always the review context.
+      bounded = assembleContext(request, diff, deps, imports, neighbors)
     }
 
     // No rule applies to any changed file (a docs/SVG/image-only PR): there is
