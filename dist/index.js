@@ -42351,7 +42351,7 @@ var GENERATED_GLOBS = [
 ];
 var baselinePack = {
   id: name7,
-  version: "0.1.0",
+  version: "0.1.1",
   title: "DSH Reviewer baseline rules",
   rules: [
     // -------------------------------------------------------------------
