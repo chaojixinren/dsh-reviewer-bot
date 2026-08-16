@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/review-runtime",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "The eight-stage review pipeline orchestrator.",
   "license": "MIT",

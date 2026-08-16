@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/rule-registry",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Declarative review rule pack registry with glob matching.",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/runtime-bootstrap",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Boots the Cordis container + plugin chain + LLM agent loop into a runnable entrypoint.",

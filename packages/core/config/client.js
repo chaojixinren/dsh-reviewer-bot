@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
     var exports = module.exports
     var React = require('react')
 
-    var inject = ['slots', 'remote', 'remote.dshrb']
+    var inject = ['slots', 'remote']
 
     function unwrap(result, method) {
       if (!result || result.ok !== true) {
@@ -24,17 +24,61 @@ window.__ModuleLoader__.load({
       return result.value
     }
 
-    function apply(ctx) {
+    // Client Remote contribution. The shell builds `remote.<namespace>`
+    // services from a `TYPERT_REMOTE` contribution (`descriptors`), NOT from
+    // the host `./typert` manifest. First-party DSH packages inline theirs
+    // into `@deepseek-ai/dsh-api-remotes`; a third-party bundle must mount its
+    // own contribution via `ctx.remote.$mount(...)`. Schemas are strict-mode
+    // but pass-through: the Host gateway validates args and encodes results,
+    // so the client only needs a callable `.parse`.
+    var passthrough = { parse: function (value) { return value } }
+
+    var TYPERT_REMOTE = {
+      package: '@dshrb/config',
+      descriptors: [
+        {
+          id: '@dshrb/config#dshrb/getConfig',
+          service: 'dshrbRemote',
+          namespace: 'dshrb',
+          method: 'getConfig',
+          invocation: { kind: 'direct' },
+          parameters: [],
+          result: { mode: 'strict', typeSymbol: '@dshrb/config/types#ClientConfig', schema: passthrough },
+        },
+        {
+          id: '@dshrb/config#dshrb/setConfig',
+          service: 'dshrbRemote',
+          namespace: 'dshrb',
+          method: 'setConfig',
+          invocation: { kind: 'direct' },
+          parameters: [
+            { name: 'patch', wire: 'patch', source: 'json', codec: { mode: 'strict', typeSymbol: '@dshrb/config/types#ConfigPatch', schema: passthrough } },
+          ],
+          result: { mode: 'strict', typeSymbol: '@dshrb/config/types#SetResult', schema: passthrough },
+        },
+      ],
+    }
+
+    async function apply(ctx) {
+      // Mount the `remote.dshrb` contribution first: `$mount` resolves once
+      // the namespace service (and its getConfig/setConfig methods) exists, so
+      // we must not inject `remote.dshrb` as a hard dependency (it is produced
+      // by this very mount).
+      var unmount = await ctx.remote.$mount(TYPERT_REMOTE)
+      var remoteDshrb = ctx.get('remote.dshrb')
+
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: 'dshrb',
         order: 25,
         label: 'DSH Reviewer',
         inject: () => ({
-          getConfig: () => ctx.remote.dshrb.getConfig().then((r) => unwrap(r, 'getConfig')),
-          setConfig: (patch) => ctx.remote.dshrb.setConfig(patch).then((r) => unwrap(r, 'setConfig')),
+          getConfig: () => remoteDshrb.getConfig().then((r) => unwrap(r, 'getConfig')),
+          setConfig: (patch) => remoteDshrb.setConfig(patch).then((r) => unwrap(r, 'setConfig')),
         }),
       }, DshrbSettingsSection))
+
+      return async () => { await unmount() }
     }
 
     var field = { display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '560px' }

@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/forge-gitlab",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "GitLab ForgeGateway provider.",
   "license": "MIT",

@@ -25,7 +25,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 const CORDIS = '4.0.1'
 const SCHEMASTERY = '3.18.1'
 const ZOD = '4.4.3'
