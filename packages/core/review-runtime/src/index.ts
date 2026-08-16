@@ -764,6 +764,10 @@ export function reason(
  * surviving shards' output is returned, and `incompleteShards` tells the caller
  * to say so in the summary rather than silently claim full coverage. The
  * per-shard token budget is `ceil(shardTokenBudget / shardCount)`.
+ *
+ * When NO shard succeeds (no subagent provider registered, or a total model
+ * outage) the fan-out falls back to `deps.runAgent` so a multi-shard PR is still
+ * reviewed instead of silently reported as "success" with zero findings.
  */
 export async function fanOutShards(
   bounded: BoundedContext, deps: StageDeps, signal: AbortSignal,
@@ -805,6 +809,14 @@ export async function fanOutShards(
   // surfaces as the timed-out result through `runReview`'s catch.
   if (signal.aborted) {
     throw new Error('review aborted by the watchdog')
+  }
+
+  // Every shard failed — a missing subagent provider, or a total model outage —
+  // must not be reported as a "successful" review with zero findings. Fall back
+  // to the single-agent path (the pre-fan-out behaviour) so a large PR is still
+  // reviewed rather than silently skipped.
+  if (results.every((result) => result === undefined)) {
+    return deps.runAgent(bounded, signal)
   }
 
   const proposals: RawProposal[] = []

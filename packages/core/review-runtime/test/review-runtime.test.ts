@@ -660,6 +660,23 @@ describe('fanOutShards', () => {
     expect(output.shardResults?.map((r) => r.shardIndex)).not.toContain(0)
   })
 
+  it('falls back to the single-agent path when every shard fails', async () => {
+    const bounded = await multiShardBounded()
+    const deps = depsFixture({
+      parallelShards: true,
+      runShard: async () => {
+        throw new Error('shard fan-out requires a registered ctx.subagents provider')
+      },
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const output = await fanOutShards(bounded, deps, new AbortController().signal)
+    // No fan-out artefacts: the caller must take the single-agent path so the
+    // PR is reviewed instead of silently reported as "success" with no findings.
+    expect(output.shardResults).toBeUndefined()
+    expect(output.incompleteShards).toBeUndefined()
+    expect(output.proposals).toHaveLength(1)
+  })
+
   it('passes a per-shard token budget derived from shardTokenBudget', async () => {
     const bounded = await multiShardBounded()
     const budgets: number[] = []
