@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestId, calibrateSeverity, commentId, commitSha, forgeId, isSafeGlobPattern, matchesGlob, requestId, ruleId, wildcardMemoryKey } from '@dshrb/review-core'
+import { changeRequestId, calibrateSeverity, commentId, commitSha, findingId, forgeId, isSafeGlobPattern, matchesGlob, requestId, ruleId, wildcardMemoryKey } from '@dshrb/review-core'
 import type {
   Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget, SuppressedFinding,
 } from '@dshrb/review-core'
@@ -2232,12 +2232,20 @@ describe('fetchNeighborContents', () => {
 })
 
 describe('assembleContext neighbor enrichment (RFC C1)', () => {
-  it('includes a prebuilt neighbor map when one is supplied', () => {
+  async function setup() {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    return request
+  }
+
+  it('includes a prebuilt neighbor map when one is supplied', async () => {
+    const request = await setup()
     const bounded = assembleContext(request, diffFixture(), depsFixture(), undefined, new Map([['src/x.ts', 'content']]))
     expect(bounded.neighbors?.get('src/x.ts')).toBe('content')
   })
 
   it('omits neighbors when none are supplied (current behavior)', () => {
+    const request = await setup()
     const bounded = assembleContext(request, diffFixture(), depsFixture())
     expect(bounded.neighbors).toBeUndefined()
   })
