@@ -140,7 +140,7 @@ flowchart LR
 - [ ] `@dsr review` 在真实 GitHub PR 事件上端到端跑通（汇总评论 + 至少一条正确锚定的行内评论）
 - [ ] `@dsr fix` 通过 GitHub provider 真正创建 commit / 开 PR
 - [x] release CI 产出 bundled entrypoint 并 attach 到 Action（清掉 action.yml 的 TODO）
-- [ ] 仓库根目录存在 MIT LICENSE 文件
+- [x] 仓库根目录存在 MIT LICENSE 文件
 - [ ] `@dshrb/bundle` 发布到 npm，`dsh plugin add @dshrb/bundle` 可装入既有 profile
 
 ## 风险登记
