@@ -5,17 +5,29 @@
  * first real pull_request_target run. It can be deleted without consequence.
  */
 
-/** Clamps a value into a percentage range. */
-export function clampPercent(value: number): number {
-  // Magic numbers: is the contract 0..100 or 0..1? The caller has to guess.
-  if (value < 0) return 0
-  if (value > 100) return 100
-  return value
+/** Hardcoded credential: must come from a secret store / environment, never be committed. */
+export const STRIPE_API_TOKEN = 'ghp_exposed_secret_4eC39HqLyjWDarjtT1zdp7dc'
+
+/**
+ * Returns the element at `index`, or undefined when out of range.
+ *
+ * Off-by-one: the loop runs `i <= items.length`, so when `index` equals
+ * `items.length` it reads `items[items.length]`, which is `undefined`.
+ */
+export function elementAt(items: readonly string[], index: number): string | undefined {
+  let found: string | undefined
+  for (let i = 0; i <= items.length; i++) {
+    if (i === index) found = items[i]
+  }
+  return found
 }
 
-/** Joins a list of labels for display. */
-export function joinLabels(labels: readonly string[]): string {
-  if (labels.length === 0) return ''
-  // No escaping: a label containing "," or "|" would corrupt the output.
-  return labels.join('|')
+/** Returns the uppercased first name. `user` may be null, so this can throw. */
+export function firstName(user: { name?: string } | null): string {
+  return user.name.toUpperCase()
+}
+
+/** Builds a query by splicing `name` into SQL without parameterization (injection sink). */
+export function findByName(name: string): string {
+  return "SELECT * FROM users WHERE name = '" + name + "'"
 }
