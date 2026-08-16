@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
-import { countBlockers, findingDedupeKey, findingId, findingInvariantViolation, findingMemoryKey, isSafeRelativePath, meetsSeverityThreshold, memoryKey, severityRank } from '@dshrb/review-core'
+import { buildFindingBadge, countBlockers, findingDedupeKey, findingId, findingInvariantViolation, findingMemoryKey, isSafeRelativePath, meetsSeverityThreshold, memoryKey, severityRank } from '@dshrb/review-core'
 import { narrowPatchProposal, narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, DiscardedProposal, Failure, Finding, ForgeId, IsolationProfile, NormalizedEvent, Patch,
@@ -1163,10 +1163,10 @@ export function buildSummary(
     lines.push(suppressed.length > 0 ? 'All findings were suppressed as accepted exceptions.' : 'No findings.')
   } else {
     for (const finding of findings) {
-      lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line}) — accept with \`${acceptCommand(finding)}\``)
+      lines.push(`- ${buildFindingBadge(finding)} **${finding.title}** (${finding.anchor.path}:${finding.anchor.line}) — accept with \`${acceptCommand(finding)}\``)
     }
     for (const finding of degraded) {
-      lines.push(`- **${finding.severity}** (summary only): ${finding.title} — ${finding.anchor.fallbackReason ?? 'could not be anchored'}`)
+      lines.push(`- ${buildFindingBadge(finding)} **${finding.title}** (summary only) — ${finding.anchor.fallbackReason ?? 'could not be anchored'}`)
     }
   }
   lines.push('')

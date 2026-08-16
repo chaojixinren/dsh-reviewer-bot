@@ -459,6 +459,71 @@ export function downgradeSeverity(severity: Severity): Severity {
   return SEVERITY_ORDER[severityRank(severity) + 1] ?? severity
 }
 
+// ---------------------------------------------------------------------------
+// Finding badge (shields.io image)
+// ---------------------------------------------------------------------------
+
+/**
+ * Color per severity for the shields.io static badge. The scale follows the
+ * severity ladder: `blocker` is the hottest (darkred), `info` is informational
+ * (blue). Values are standard CSS color names shields.io accepts.
+ */
+export const SEVERITY_BADGE_COLOR: Readonly<Record<Severity, string>> = Object.freeze({
+  blocker: 'darkred',
+  major: 'red',
+  minor: 'orange',
+  nit: 'green',
+  info: 'blue',
+})
+
+/**
+ * The rule group a finding's `ruleId` belongs to: the segment before the first
+ * `/` (`security` from `security/secret-in-source`). Returns `undefined` when
+ * the id has no `/` or an empty prefix, so a badge can fall back to severity
+ * only rather than inventing a category.
+ */
+export function findingCategory(ruleId: RuleId | undefined): string | undefined {
+  if (ruleId === undefined) return undefined
+  const slash = ruleId.indexOf('/')
+  if (slash <= 0) return undefined
+  const category = ruleId.slice(0, slash).trim()
+  return category === '' ? undefined : category
+}
+
+/** Escapes a value for a shields.io static-badge path segment (`-`/`_` are separators). */
+function shieldsEscape(value: string): string {
+  return encodeURIComponent(value.replace(/-/g, '--').replace(/_/g, '__'))
+}
+
+/** Escapes Markdown image alt text so a stray `[`/`]`/`\` cannot break the image. */
+function escapeMarkdownAlt(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+}
+
+/**
+ * Renders a finding's severity (and rule category, when the `ruleId` has one)
+ * as a single shields.io static badge for Markdown surfaces (GitHub inline and
+ * summary comments). The image alt text keeps the plain-text form so screen
+ * readers and image-load failures degrade to the previous text. Severity is a
+ * validated enum, so the color lookup never misses.
+ *
+ *   category + severity → `![category · severity](…/badge/category-severity-<color>)`
+ *   severity only       → `![severity](…/badge/severity-<color>)`
+ */
+export function buildFindingBadge(finding: Finding): string {
+  const category = findingCategory(finding.ruleId)
+  const severity = finding.severity
+  const color = SEVERITY_BADGE_COLOR[severity]
+  const alt = category === undefined ? severity : `${category} · ${severity}`
+  const label = category === undefined
+    ? shieldsEscape(severity)
+    : `${shieldsEscape(category)}-${shieldsEscape(severity)}`
+  return `![${escapeMarkdownAlt(alt)}](https://img.shields.io/badge/${label}-${color})`
+}
+
 export interface SeverityClaim {
   readonly severity: Severity
   /** Concrete inputs or state leading to wrong output. */
