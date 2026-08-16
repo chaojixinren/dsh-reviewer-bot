@@ -19,8 +19,7 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.1",
     "@dshrb/review-core": "workspace:*",
-    "@dshrb/review-runtime": "workspace:*",
-    "@dshrb/forge-github": "workspace:*"
+    "@dshrb/runtime-bootstrap": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1"

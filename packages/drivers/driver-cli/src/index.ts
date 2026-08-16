@@ -25,7 +25,8 @@ import type { ReviewRuleRegistry, RulePack } from '@dshrb/rule-registry'
 import { baselinePack } from '@dshrb/rules-baseline'
 import { createTrustPolicy } from '@dshrb/trust-policy'
 import { parseReplaySnapshot, runReview } from '@dshrb/review-runtime'
-import type { ReplaySnapshot, StageDeps } from '@dshrb/review-runtime'
+import type { AgentLoopServices, ReplaySnapshot, StageDeps } from '@dshrb/review-runtime'
+import { bootReviewRuntime } from '@dshrb/runtime-bootstrap'
 
 export type Command = 'review' | 'replay' | 'rules' | 'doctor'
 
@@ -363,6 +364,8 @@ export interface ReviewLocalDeps {
   readonly readFile: FileReader
   readonly write: LineWriter
   readonly runAgent: StageDeps['runAgent']
+  /** Builds a `runAgent` over the locally-assembled forges + trust policy. */
+  readonly createRunAgent?: (services: AgentLoopServices) => StageDeps['runAgent']
   readonly writeSnapshot?: (snapshot: ReplaySnapshot) => Promise<void>
   readonly rulePacks?: readonly RulePack[]
   readonly now?: () => number
@@ -388,6 +391,9 @@ export async function reviewLocal(deps: ReviewLocalDeps): Promise<ReviewResult> 
   ))
 
   const trustPolicy = createTrustPolicy({ allowWrite: false, protectedPaths: [] })
+  const runAgent = deps.createRunAgent === undefined
+    ? deps.runAgent
+    : deps.createRunAgent({ forges, trustPolicy })
   const stageDeps: StageDeps = {
     forges,
     now: deps.now ?? (() => Date.now()),
@@ -401,7 +407,7 @@ export async function reviewLocal(deps: ReviewLocalDeps): Promise<ReviewResult> 
     memory: [],
     packs: () => registry.packs(),
     trustPolicy,
-    runAgent: deps.runAgent,
+    runAgent,
     ...(deps.writeSnapshot === undefined ? {} : { writeSnapshot: deps.writeSnapshot }),
   }
 
@@ -445,9 +451,9 @@ export interface CliDeps {
 /**
  * Real-world deps: a baseline rule registry, the local snapshot directory, and
  * environment-derived doctor checks. `review --local` runs through forge-local
- * with real git, but its `runAgent` throws because the LLM bootstrap is
- * assembled by the release build (the same deferral as driver-action's
- * `createRunner`).
+ * with real git; its `runAgent` is assembled by `@dshrb/runtime-bootstrap`,
+ * the same Cordis container + plugin chain + LLM agent loop the Action mode
+ * boots (docs/05-packaging.md).
  */
 export function createDefaultDeps(env: NodeJS.ProcessEnv = process.env): CliDeps {
   const root = env.DSHRB_ROOT ?? process.cwd()
@@ -466,19 +472,25 @@ export function createDefaultDeps(env: NodeJS.ProcessEnv = process.env): CliDeps
       if (options.local !== true) {
         throw new CliError('`review --pr` needs the remote forge and runtime bootstrap; only `--local` is available in this milestone')
       }
-      const baseSha = commitSha((await localDeps.git(['rev-parse', 'HEAD'])).trim())
-      return reviewLocal({
-        repo: env.DSHRB_REPO ?? 'local',
-        baseSha,
-        headSha: baseSha,
-        git: localDeps.git,
-        readFile: localDeps.readFile,
-        write: localDeps.write,
-        writeSnapshot: (snapshot) => writeSnapshotFile(dir, snapshot),
-        runAgent: async () => {
-          throw new Error('runtime bootstrap (LLM agent) is assembled by the release build; `review --local` needs it')
-        },
-      })
+      const runtime = await bootReviewRuntime({})
+      try {
+        const baseSha = commitSha((await localDeps.git(['rev-parse', 'HEAD'])).trim())
+        return await reviewLocal({
+          repo: env.DSHRB_REPO ?? 'local',
+          baseSha,
+          headSha: baseSha,
+          git: localDeps.git,
+          readFile: localDeps.readFile,
+          write: localDeps.write,
+          writeSnapshot: (snapshot) => writeSnapshotFile(dir, snapshot),
+          runAgent: async () => {
+            throw new Error('runtime bootstrap did not produce an agent loop')
+          },
+          createRunAgent: (services) => runtime.createRunAgent(services),
+        })
+      } finally {
+        await runtime.dispose()
+      }
     },
   }
 }

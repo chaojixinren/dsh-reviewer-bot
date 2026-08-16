@@ -1,6 +1,6 @@
 # DSH Reviewer Bot 设计文档
 
-> 状态：M4（生态与规模化）已完成 5/5；M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、跨 PR 记忆，618 例单测），M4 已交付 bundle 发布 / forge-gitlab / 分片并行 / driver-webhook / 跨 PR 记忆，M5 发布与收尾进行中（`forge-github` 写能力与 LICENSE 已落地，npm 发布管线已就绪，剩余 runtime bootstrap / 实际 `npm publish`）
+> 状态：M5（发布与收尾）进行中：runtime bootstrap / release build（#50）已接通——`@dshrb/runtime-bootstrap` 直接 `ctx.plugin()` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；M1–M4 已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、bundle 发布、分片并行、跨 PR 记忆，621 例单测）。剩余：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪，仅剩实际 `npm publish`。
 > 目标形态：**DSH 原生插件集** + 可选的 GitHub Action / Webhook 守护进程外壳
 
 ## 一句话定位
@@ -16,6 +16,7 @@
 | [03-review-pipeline.md](./03-review-pipeline.md) | 事件 → 评审 → 发布 的完整时序与状态机 |
 | [04-trust-model.md](./04-trust-model.md) | 四级信任模型、能力矩阵、威胁清单 |
 | [05-plugin-composition.md](./05-plugin-composition.md) | Cordis 扩展点映射、bundle/profile 装配 |
+| [05-packaging.md](./05-packaging.md) | runtime bootstrap 与 release build 打包入口 |
 | [06-forge-abstraction.md](./06-forge-abstraction.md) | 多代码平台抽象（GitHub / GitLab / Gitea） |
 | [07-data-contracts.md](./07-data-contracts.md) | Finding / Verdict / result-json 契约与版本化 |
 | [08-deployment-modes.md](./08-deployment-modes.md) | Action / Daemon / CLI 三种运行形态 |

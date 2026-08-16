@@ -39,7 +39,7 @@ const DSH = '0.1.0-rc.6'
 const UPSTREAM = {
   'trust-policy': ['dsh-tools', 'dsh-system-prompt'],
   'tool-review': ['dsh-tools', 'dsh-system-prompt'],
-  'review-runtime': ['dsh-subagent', 'dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy'],
+  'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy', 'dsh-subagent'],
   // progress subscribes to `session/event`, owned by dsh-session.
   'progress': ['dsh-session'],
 }
@@ -51,6 +51,37 @@ const UPSTREAM = {
  */
 const WORKSPACE_DEV_DEPS = {
   'trust-policy': ['tool-review'],
+}
+
+/**
+ * Upstream dsh-* packages a standalone assembler bundles as RUNTIME
+ * dependencies. `runtime-bootstrap` is not a profile plugin — it boots the
+ * Cordis container itself, so it owns (and the release build bundles) the
+ * DSH runtime services it mounts instead of receiving them from a host.
+ */
+const RUNTIME_DSH_DEPS = {
+  'runtime-bootstrap': [
+    'dsh-system-prompt',
+    'dsh-tools',
+    'dsh-sandbox-policy',
+    'dsh-fs-sandbox',
+    // The local sandbox wraps subprocesses with native launchers (bwrap /
+    // Landlock / a Windows restricted-token runner) that cannot be esbuild-
+    // bundled. The standalone bundle mounts a fail-closed `dsh-sandbox`
+    // provider instead, so only the service interface is a dependency here.
+    'dsh-sandbox',
+    'dsh-typert-registry',
+    'dsh-session',
+    'dsh-agent',
+    'dsh-session-projection',
+    'dsh-subagent',
+    'dsh-subagent-spawn-in-process',
+    'dsh-agent-default-model',
+    'dsh-llm',
+    'dsh-llm-deepseek',
+    'dsh-credentials-local',
+    'dsh-settings-file',
+  ],
 }
 
 /** dir, package name, description, workspace deps (short names) */
@@ -66,9 +97,10 @@ const PACKAGES = [
   ['forge/forge-local', 'forge-local', 'Local git ForgeGateway provider for offline dry-run.', ['review-core', 'forge']],
   ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],
   ['rules/rules-baseline', 'rules-baseline', 'Baseline review rule pack: correctness, security, maintainability.', ['review-core', 'rule-registry']],
-  ['drivers/driver-action', 'driver-action', 'GitHub Action driver shell.', ['review-core', 'review-runtime', 'forge-github']],
+  ['drivers/driver-action', 'driver-action', 'GitHub Action driver shell.', ['review-core', 'runtime-bootstrap']],
   ['drivers/driver-webhook', 'driver-webhook', 'Long-running webhook daemon driver shell.', ['review-core', 'review-runtime']],
-  ['drivers/driver-cli', 'driver-cli', 'Local dry-run, replay, and rule debugging CLI.', ['review-core', 'review-runtime', 'forge', 'forge-local', 'rule-registry', 'rules-baseline', 'trust-policy']],
+  ['drivers/driver-cli', 'driver-cli', 'Local dry-run, replay, and rule debugging CLI.', ['review-core', 'review-runtime', 'runtime-bootstrap', 'forge', 'forge-local', 'rule-registry', 'rules-baseline', 'trust-policy']],
+  ['core/runtime-bootstrap', 'runtime-bootstrap', 'Boots the Cordis container + plugin chain + LLM agent loop into a runnable entrypoint.', ['review-core', 'review-runtime', 'forge', 'forge-github', 'forge-gitlab', 'rule-registry', 'rules-baseline', 'trust-policy', 'tool-review', 'progress']],
 ]
 
 const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
@@ -103,6 +135,9 @@ for (const [dir, short, description, deps] of PACKAGES) {
   const dependencies = { '@deepseek-ai/schemastery': SCHEMASTERY }
   for (const d of deps) {
     dependencies[`@dshrb/${d}`] = 'workspace:*'
+  }
+  for (const u of RUNTIME_DSH_DEPS[short] ?? []) {
+    dependencies[`@deepseek-ai/${u}`] = DSH
   }
 
   // cordis and every injected service's owner appear in peer + dev at the

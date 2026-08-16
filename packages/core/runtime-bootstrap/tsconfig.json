@@ -10,28 +10,34 @@
   ],
   "references": [
     {
-      "path": "../../core/review-core"
+      "path": "../review-core"
     },
     {
-      "path": "../../core/review-runtime"
+      "path": "../review-runtime"
     },
     {
-      "path": "../../core/runtime-bootstrap"
+      "path": "../forge"
     },
     {
-      "path": "../../core/forge"
+      "path": "../../forge/forge-github"
     },
     {
-      "path": "../../forge/forge-local"
+      "path": "../../forge/forge-gitlab"
     },
     {
-      "path": "../../core/rule-registry"
+      "path": "../rule-registry"
     },
     {
       "path": "../../rules/rules-baseline"
     },
     {
-      "path": "../../core/trust-policy"
+      "path": "../trust-policy"
+    },
+    {
+      "path": "../../tools/tool-review"
+    },
+    {
+      "path": "../progress"
     }
   ]
 }

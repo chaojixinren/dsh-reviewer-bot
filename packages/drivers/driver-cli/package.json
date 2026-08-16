@@ -20,6 +20,7 @@
     "@deepseek-ai/schemastery": "3.18.1",
     "@dshrb/review-core": "workspace:*",
     "@dshrb/review-runtime": "workspace:*",
+    "@dshrb/runtime-bootstrap": "workspace:*",
     "@dshrb/forge": "workspace:*",
     "@dshrb/forge-local": "workspace:*",
     "@dshrb/rule-registry": "workspace:*",

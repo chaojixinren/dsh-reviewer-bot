@@ -19,11 +19,13 @@
     "lint": "oxlint .",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "clean": "rm -rf packages/*/*/lib",
+    "build:release": "node scripts/build-release.mjs",
     "probe": "pnpm --filter @dshrb/signature-probe run check"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@types/node": "24.3.0",
+    "esbuild": "0.28.2",
     "oxlint": "1.9.0",
     "typescript": "5.9.2",
     "vitest": "3.2.4"
