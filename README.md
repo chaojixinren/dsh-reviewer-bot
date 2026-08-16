@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/milestone-M2%20完成-1D76DB" alt="milestone: M2" />
 </p>
 
-> **当前状态：M4（生态与规模化）已完成 4/4。** M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 四级判定、`forge-github` / `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`），配 583 例单测（18 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M4 已交付：`bundle` 发布、`forge-gitlab`、分片并行、`driver-webhook`；剩余跨 PR 记忆（#52）。M5 发布与收尾尚未开始：runtime bootstrap / release build、`forge-github` 写能力、LICENSE、npm 发布。
+> **当前状态：M5（发布与收尾）进行中。** M1 只读评审闭环、M2 规则与本地化、M3 写模式、M4 生态与规模化已全部落地（领域类型 `review-core`、forge 接口 + 注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 四级判定、`forge-github` / `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、`bundle` 发布、分片并行、跨 PR 记忆、`forge-github` 写能力），配 621 例单测（19 个测试文件）全绿；`signature-probe` 在真实容器里验证扩展点签名。M5 已接通 runtime bootstrap + release build：`@dshrb/runtime-bootstrap` 装配 Cordis 容器 + 插件链 + LLM agent loop，driver-action `createRunner` 与 driver-cli `runAgent` 已接线，release CI 构建 bundled entrypoint 并 attach；LICENSE（#53）已落地，npm 发布（#54）管线已就绪。剩余：实际 `npm publish`。
 
 ## 为什么不是又一个 CI Action
 
@@ -35,7 +35,7 @@
 完整设计在 [`docs/`](./docs/README.md)，含 mermaid 图：
 
 - [架构总览](./docs/02-architecture.md) · [评审管线](./docs/03-review-pipeline.md) · [信任模型](./docs/04-trust-model.md)
-- [插件装配](./docs/05-plugin-composition.md) · [Forge 抽象](./docs/06-forge-abstraction.md) · [数据契约](./docs/07-data-contracts.md)
+- [插件装配](./docs/05-plugin-composition.md) · [打包](./docs/05-packaging.md) · [Forge 抽象](./docs/06-forge-abstraction.md) · [数据契约](./docs/07-data-contracts.md)
 - [部署形态](./docs/08-deployment-modes.md) · [路线图](./docs/09-roadmap.md) · [设计目标](./docs/01-design-goals.md)
 
 ## 三种安装方式

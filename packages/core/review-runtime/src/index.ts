@@ -2591,11 +2591,25 @@ export function renderDiagnoseContext(bounded: BoundedContext): string {
 }
 
 /**
+ * The review services an agent loop reads from the caller. These are the two
+ * per-run services a driver assembles itself (the CLI's `reviewLocal` builds a
+ * forge-local registry and a local trust policy), so the default driver takes
+ * them explicitly rather than reading them from the Cordis context. The
+ * remaining services (`agents`, `sessions`, `reviewTools`) are genuinely
+ * runtime-owned and stay on `ctx`.
+ */
+export interface AgentLoopServices {
+  readonly forges: ForgeRegistry
+  readonly trustPolicy: TrustPolicy
+}
+
+/**
  * The default agent driver: creates an agent scoped to the resolved trust
  * level, binds the review tools to the bounded context, collects
  * `report_finding` proposals from `session/event`, and returns them.
  */
-function createRunAgent(ctx: Context): StageDeps['runAgent'] {
+export function createRunAgent(ctx: Context, services: AgentLoopServices): StageDeps['runAgent'] {
+  const { forges, trustPolicy } = services
   return async (bounded, signal): Promise<AgentOutput> => {
     const proposals: RawProposal[] = []
     const patches: RawPatch[] = []
@@ -2605,10 +2619,10 @@ function createRunAgent(ctx: Context): StageDeps['runAgent'] {
     const handle = await ctx.agents.create({
       sessionId: session.id,
       setup: (agentCtx) => {
-        agentCtx.effect(() => ctx.trustPolicy.restrictScope(agentCtx))
+        agentCtx.effect(() => trustPolicy.restrictScope(agentCtx))
 
         const request = bounded.request
-        const diffSource = ctx.forges.require<DiffSource>(request.event.forgeId, ['diff-source'])
+        const diffSource = forges.require<DiffSource>(request.event.forgeId, ['diff-source'])
         // `diagnose` reads CI logs through the same `read_check_log` channel the
         // review tools already expose, and wraps each log in explicit delimiters
         // because it is untrusted content (docs/04 T2). Review keeps the M1 stub
@@ -2616,7 +2630,7 @@ function createRunAgent(ctx: Context): StageDeps['runAgent'] {
         const readCheckLog: ReviewToolContext['readCheckLog'] = diagnose
           ? async (checkId, sig) => {
               sig.throwIfAborted()
-              const checkReader = ctx.forges.require<CheckReader>(request.event.forgeId, ['check-reader'])
+              const checkReader = forges.require<CheckReader>(request.event.forgeId, ['check-reader'])
               const log = await checkReader.fetchLog(request.event.target.repo, checkId)
               return wrapUntrustedLog(checkId, log)
             }
@@ -2813,7 +2827,7 @@ export function apply(ctx: Context, config: Config): void {
     shardImports: createShardImports(ctx),
     runShard: createShardRunner(ctx),
   }
-  const deps: StageDeps = { ...base, runAgent: createRunAgent(ctx) }
+  const deps: StageDeps = { ...base, runAgent: createRunAgent(ctx, { forges: ctx.forges, trustPolicy: ctx.trustPolicy }) }
 
   ctx.provide('reviewRuntime', {
     runReview(raw) {

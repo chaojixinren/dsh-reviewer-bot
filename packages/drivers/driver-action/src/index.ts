@@ -11,6 +11,7 @@ import { appendFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { requestId } from '@dshrb/review-core'
 import type { ReviewResult } from '@dshrb/review-core'
+import { bootReviewRuntime } from '@dshrb/runtime-bootstrap'
 
 /** Action inputs, kebab-case as declared in action.yml. */
 export interface ActionInputs {
@@ -248,15 +249,58 @@ export function readEventPayload(env: NodeJS.ProcessEnv): unknown {
 /** The runtime entry the bootstrap must produce: run a raw event to a result. */
 export type ReviewRunner = (raw: unknown) => Promise<ReviewResult>
 
+/** Coerces an Action boolean input (`'true'`/anything else) to a boolean. */
+function parseBool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) return fallback
+  return raw === 'true'
+}
+
+const SEVERITIES = ['blocker', 'major', 'minor', 'nit', 'info'] as const
+
+/** Validates the `min-severity` input against the stable severity vocabulary. */
+function parseSeverity(raw: string | undefined): 'blocker' | 'major' | 'minor' | 'nit' | 'info' {
+  if (raw === undefined) return 'minor'
+  if ((SEVERITIES as readonly string[]).includes(raw)) {
+    return raw as 'blocker' | 'major' | 'minor' | 'nit' | 'info'
+  }
+  throw new InputError(`input 'min-severity' must be one of ${SEVERITIES.join(', ')}, got '${raw}'`)
+}
+
+/** Validates the `timeout-minutes` input as a positive finite number of minutes. */
+function parseTimeoutMinutes(raw: string | undefined): number {
+  if (raw === undefined) return 25
+  const value = Number(raw)
+  // `Number('abc')` is NaN and `Number('')` is 0: both would silently collapse
+  // the watchdog to an immediate timeout instead of failing the run loudly.
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new InputError(`input 'timeout-minutes' must be a positive number of minutes, got '${raw}'`)
+  }
+  return value
+}
+
 /**
- * Bootstraps the Cordis container and returns a `runReview` bound to the
- * resolved configuration. The full plugin chain and agent loop are wired by
- * the release build; the composition of `main()` is stable regardless.
+ * Boots the Cordis container and returns a `runReview` bound to the resolved
+ * configuration. The plugin chain and agent loop are wired by
+ * `@dshrb/runtime-bootstrap`; this function only maps Action inputs onto the
+ * bootstrap config and surfaces the credentials the LLM adapter resolves.
  */
-export function createRunner(_inputs: ActionInputs, _env: NodeJS.ProcessEnv): ReviewRunner {
-  throw new Error(
-    'not implemented: runtime bootstrap is assembled by the release build (see action.yml TODO and docs/05-packaging.md)',
-  )
+export async function createRunner(inputs: ActionInputs, _env: NodeJS.ProcessEnv): Promise<ReviewRunner> {
+  // The DSH base resolves the DeepSeek key from the inherited environment
+  // (`DEEPSEEK_API_KEY`); surface the Action input there before boot. The key
+  // never enters the agent workspace — it is read only by the adapter chain.
+  process.env.DEEPSEEK_API_KEY = inputs['deepseek-api-key']
+
+  const runtime = await bootReviewRuntime({
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-flash',
+    ...(inputs['github-token'] === undefined ? {} : { githubToken: inputs['github-token'] }),
+    allowWrite: parseBool(inputs['allow-write'], false),
+    enableDiagnose: true,
+    minSeverity: parseSeverity(inputs['min-severity']),
+    timeoutMinutes: parseTimeoutMinutes(inputs['timeout-minutes']),
+    ...(inputs['test-commands'] === undefined ? {} : { testCommands: inputs['test-commands'] }),
+  })
+  return runtime.runReview
 }
 
 /**
@@ -270,7 +314,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   try {
     const inputs = readInputs(env)
     const raw = readEventPayload(env)
-    const run = createRunner(inputs, env)
+    const run = await createRunner(inputs, env)
     const result = await run(raw)
     await writeOutputs(result)
   } catch (error) {

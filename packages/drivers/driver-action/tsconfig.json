@@ -13,10 +13,7 @@
       "path": "../../core/review-core"
     },
     {
-      "path": "../../core/review-runtime"
-    },
-    {
-      "path": "../../forge/forge-github"
+      "path": "../../core/runtime-bootstrap"
     }
   ]
 }

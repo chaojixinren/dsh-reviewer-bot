@@ -8,6 +8,7 @@
     { "path": "./packages/core/rule-registry" },
     { "path": "./packages/core/review-runtime" },
     { "path": "./packages/core/progress" },
+    { "path": "./packages/core/runtime-bootstrap" },
     { "path": "./packages/forge/forge-github" },
     { "path": "./packages/forge/forge-gitlab" },
     { "path": "./packages/forge/forge-local" },

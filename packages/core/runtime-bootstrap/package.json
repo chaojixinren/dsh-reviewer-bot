@@ -1,0 +1,54 @@
+{
+  "name": "@dshrb/runtime-bootstrap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Boots the Cordis container + plugin chain + LLM agent loop into a runnable entrypoint.",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@dshrb/review-core": "workspace:*",
+    "@dshrb/review-runtime": "workspace:*",
+    "@dshrb/forge": "workspace:*",
+    "@dshrb/forge-github": "workspace:*",
+    "@dshrb/forge-gitlab": "workspace:*",
+    "@dshrb/rule-registry": "workspace:*",
+    "@dshrb/rules-baseline": "workspace:*",
+    "@dshrb/trust-policy": "workspace:*",
+    "@dshrb/tool-review": "workspace:*",
+    "@dshrb/progress": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-fs-sandbox": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-sandbox": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-registry": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-projection": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm-deepseek": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials-local": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings-file": "0.1.0-rc.6"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}
