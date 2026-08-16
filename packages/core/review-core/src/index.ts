@@ -140,6 +140,20 @@ export interface ResolvedException {
   readonly path: string
   readonly ruleId?: RuleId
   readonly title: string
+  /**
+   * Wildcard match (alternative to the exact `key`). When set, the exception
+   * suppresses any finding whose `path` matches this glob — see `matchesGlob`
+   * for the supported syntax — and, when `ruleId` is also set, the same rule.
+   * Mutually complementary with `ruleOnly`: a glob may still constrain by rule.
+   * Absent → exact `key` match only (backward compatible).
+   */
+  readonly pathGlob?: string
+  /**
+   * When true, the exception suppresses any finding with the same `ruleId`,
+   * ignoring `path` and `title`. Requires a non-empty `ruleId`. Absent/undefined
+   * → false. Backward compatible: existing exact exceptions never set it.
+   */
+  readonly ruleOnly?: boolean
   /** Why the finding was accepted; surfaced to future reviewers as context. */
   readonly reason: string
   /** Actor login that accepted it. */
@@ -459,6 +473,19 @@ export function downgradeSeverity(severity: Severity): Severity {
   return SEVERITY_ORDER[severityRank(severity) + 1] ?? severity
 }
 
+/**
+ * Applies a maintainer-configured severity override for a rule (noise
+ * governance RFC N2). Calibration is one-directional: it only ever relaxes
+ * (downgrades) a finding's severity, never escalates it. An absent or
+ * non-severer override leaves the severity untouched, so a misconfigured
+ * override can hide a noisy rule but can never promote a real `blocker`/`major`
+ * into a louder one.
+ */
+export function calibrateSeverity(severity: Severity, override?: Severity): Severity {
+  if (override === undefined) return severity
+  return severityRank(override) >= severityRank(severity) ? override : severity
+}
+
 // ---------------------------------------------------------------------------
 // Finding badge (shields.io image)
 // ---------------------------------------------------------------------------
@@ -626,6 +653,23 @@ export function isSafeRelativePath(path: string): boolean {
     return false
   }
   return !path.split(/[/\\]/).includes('..')
+}
+
+/**
+ * Like `isSafeRelativePath` but permits glob metacharacters (`*`, `**`, `?`,
+ * `[...]`), so a path PATTERN (not a concrete file) can be validated before it
+ * is stored as a `ResolvedException.pathGlob`. Still rejects absolute paths,
+ * Windows drive letters, `..` traversal, and NUL bytes — a glob can narrow the
+ * match set but must never reach outside the repo.
+ */
+export function isSafeGlobPattern(pattern: string): boolean {
+  if (pattern === '' || pattern.includes('\0')) {
+    return false
+  }
+  if (pattern.startsWith('/') || pattern.startsWith('\\') || /^[a-zA-Z]:/.test(pattern)) {
+    return false
+  }
+  return !pattern.split('/').includes('..')
 }
 
 // ---------------------------------------------------------------------------
@@ -988,6 +1032,16 @@ export function findingMemoryKey(finding: Finding): string {
  */
 export function memoryKey(path: string, ruleId: string, title: string): string {
   return JSON.stringify([path, ruleId, title.trim().toLowerCase()])
+}
+
+/**
+ * Synthetic cross-PR memory key for a wildcard (rule-only / path-glob)
+ * exception, kept distinct from `memoryKey` so exact and wildcard suppressions
+ * never collide in the `byKey` map. The leading `*` sentinel marks it as a
+ * wildcard descriptor rather than a concrete finding identity.
+ */
+export function wildcardMemoryKey(ruleId: string, pathGlob: string): string {
+  return JSON.stringify(['*', ruleId, pathGlob])
 }
 
 /** Feeds the `blockers-count` scalar output. */
