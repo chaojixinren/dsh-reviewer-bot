@@ -40,7 +40,10 @@
 | 运行形态 | 一次性 Action | Action / Daemon / DSH profile / CLI |
 | Docker | 写模式硬依赖 | 可选隔离后端 |
 
-信任模型完整继承现有方案的四层设计（这部分它做得扎实），并显式化为可测试的能力矩阵，无任何放松。
+<p align="center">
+  <img src="./public/display1.png" width="42%" />
+  <img src="./public/display2.png" width="56%" />
+</p>
 
 ## 设计文档
 
