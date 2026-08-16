@@ -1,5 +1,6 @@
-<p align="center"><img src="./banner.svg" alt="DSH Reviewer Bot" /></p>
-<p align="center"><img src="./logo.svg" width="120" alt="DSH Reviewer Bot logo" /></p>
+<p align="center"><img src="./public/banner.svg" alt="DSH Reviewer Bot" /></p>
+
+<p align="center"><img src="./public/logo.png" width="120" alt="DSH Reviewer Bot logo" /></p>
 
 原生 [DeepSeek Harness](https://dshfind.com/zh/plugins/deepseek-ai/deepseek-harness) 插件形态的代码评审机器人。跨代码平台，规则可插拔，可本地重放。
 
@@ -53,6 +54,14 @@
 
 ## 三种安装方式
 
+按场景选一种接入：
+
+| 方式 | 接入入口 | 适合 |
+|---|---|---|
+| DSH 生态用户 | `dsh plugin add @dshrb/bundle` | 装进既有 profile，与其他插件共享 `ctx` |
+| GitHub Action | workflow 里 `uses: dshrb/reviewer-action@v0.1.0` | 尝鲜、小仓库 |
+| Daemon | 常驻 webhook 服务 | 大仓库、多仓库、私有部署 |
+
 ```bash
 # DSH 生态用户：装进既有 profile，与其他插件共享 ctx
 dsh plugin add @dshrb/bundle
@@ -60,6 +69,11 @@ dsh plugin add @dshrb/bundle
 # GitHub Action：见 examples/review.yml
 # Daemon：见 docs/08-deployment-modes.md
 ```
+
+- GitHub Action 最小配置见 [`examples/review.yml`](./examples/review.yml)，命令触发见 [`examples/commands.yml`](./examples/commands.yml)
+- Daemon 部署与完整模式对比见 [`docs/08-deployment-modes.md`](./docs/08-deployment-modes.md)
+
+> 本地迭代命令 `dshrb review --local` / `dshrb replay <run-id>` 不构成独立安装方式，见 [部署形态](./docs/08-deployment-modes.md)。
 
 ## 命令
 
@@ -91,13 +105,22 @@ Node 22.19+ / 24+ / 26，pnpm 11.x，对齐上游 DSH 的 engine floor。
 
 ```
 docs/                    设计文档（mermaid）
-packages/core/           领域类型 · Forge 接口 · 信任策略 · 规则注册表 · 管线 · 进度上报
-packages/forge/          GitHub / GitLab / 本地 provider
-packages/tools/          模型可见评审工具
-packages/rules/          基线规则包
+packages/core/           领域类型与评审内核
+  review-core            领域类型（零依赖、零 I/O，公共词汇表）
+  forge                  ForgeGateway 接口 + provider 注册表
+  trust-policy           四级信任判定 + 工具执行门禁
+  rule-registry          规则包注册表（glob 匹配）
+  review-runtime         八阶段评审管线编排
+  progress               sticky 进度评论生命周期
+  runtime-bootstrap      Cordis 容器 + 插件链 + agent loop 装配入口
+packages/forge/          provider 实现（github / gitlab / local）
+packages/tools/          模型可见评审工具（注册在 ctx.tools）
+packages/rules/          评审规则包（baseline）
 packages/drivers/        Action / Webhook / CLI 三种外壳
+packages/probe/          上游签名探针（仅开发期验证契约）
 bundle/                  dsh.bundle 声明，供 dsh plugin add
 examples/                workflow 模板
+scripts/                 包清单生成（gen-package-manifests.mjs 单一事实来源）
 ```
 
 ## 安全

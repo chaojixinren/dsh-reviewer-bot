@@ -16,6 +16,7 @@
     "typecheck": "tsc -b tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "node scripts/e2e-install-modes.mjs",
     "lint": "oxlint .",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "clean": "rm -rf packages/*/*/lib",

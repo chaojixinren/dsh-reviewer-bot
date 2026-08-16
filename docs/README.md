@@ -19,7 +19,7 @@
 | [05-packaging.md](./05-packaging.md) | runtime bootstrap 与 release build 打包入口 |
 | [06-forge-abstraction.md](./06-forge-abstraction.md) | 多代码平台抽象（GitHub / GitLab / Gitea） |
 | [07-data-contracts.md](./07-data-contracts.md) | Finding / Verdict / result-json 契约与版本化 |
-| [08-deployment-modes.md](./08-deployment-modes.md) | Action / Daemon / CLI 三种运行形态 |
+| [08-deployment-modes.md](./08-deployment-modes.md) | Action / Daemon / DSH Profile / 本地 CLI 四种运行形态 |
 | [09-roadmap.md](./09-roadmap.md) | 里程碑与验收标准 |
 
 ## 设计原则
