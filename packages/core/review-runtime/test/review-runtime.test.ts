@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
 import type {
-  Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget,
+  Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget, SuppressedFinding,
 } from '@dshrb/review-core'
 import { createForgeRegistry } from '@dshrb/forge'
 import type {
@@ -810,6 +810,21 @@ describe('buildSummary', () => {
 
   it('says no findings when empty', () => {
     expect(buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [])).toContain('No findings.')
+  })
+
+  it('does not claim "No findings." when every finding was suppressed', () => {
+    const suppressed: readonly SuppressedFinding[] = [{
+      key: '["src/index.ts","","loose equality"]',
+      path: 'src/index.ts',
+      title: 'loose equality',
+      severity: 'major',
+      resolvedBy: 'bob',
+      reason: 'intentional',
+    }]
+    const text = buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [], 0, suppressed)
+    expect(text).not.toContain('No findings.')
+    expect(text).toContain('All findings were suppressed as accepted exceptions.')
+    expect(text).toContain('suppressed 1 finding')
   })
 
   it('declares incomplete shards explicitly instead of pretending full coverage', () => {

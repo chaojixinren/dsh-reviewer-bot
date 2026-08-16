@@ -1158,7 +1158,9 @@ export function buildSummary(
 ): string {
   const lines: string[] = ['## DSH Reviewer Bot summary', '']
   if (findings.length === 0 && degraded.length === 0) {
-    lines.push('No findings.')
+    // When every finding was suppressed as an accepted exception, "No findings."
+    // would contradict the "suppressed N" note that follows, so say what happened.
+    lines.push(suppressed.length > 0 ? 'All findings were suppressed as accepted exceptions.' : 'No findings.')
   } else {
     for (const finding of findings) {
       lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line}) — accept with \`${acceptCommand(finding)}\``)
