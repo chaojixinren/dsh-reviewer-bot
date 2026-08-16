@@ -1,6 +1,6 @@
 # DSH Reviewer Bot 设计文档
 
-> 状态：M4（生态与规模化）已完成 5/5；M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、跨 PR 记忆，608 例单测），M4 已交付 bundle 发布 / forge-gitlab / 分片并行 / driver-webhook / 跨 PR 记忆，M5 发布与收尾进行中（`forge-github` 写能力与 LICENSE 已落地，npm 发布管线已就绪，剩余 runtime bootstrap / 实际 `npm publish`）
+> 状态：M4（生态与规模化）已完成 5/5；M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（领域类型、forge 接口 + 锚定器 + 共享 provider 契约测试套件、`trust-policy`、`forge-github` / `forge-gitlab`、`tool-review`、`review-runtime` 八阶段管线、`progress`、`driver-action` / `driver-webhook` / `driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`、跨 PR 记忆，618 例单测），M4 已交付 bundle 发布 / forge-gitlab / 分片并行 / driver-webhook / 跨 PR 记忆，M5 发布与收尾进行中（`forge-github` 写能力与 LICENSE 已落地，npm 发布管线已就绪，剩余 runtime bootstrap / 实际 `npm publish`）
 > 目标形态：**DSH 原生插件集** + 可选的 GitHub Action / Webhook 守护进程外壳
 
 ## 一句话定位
