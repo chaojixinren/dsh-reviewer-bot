@@ -35,6 +35,9 @@ jobs:
         uses: chaojixinren/dsh-reviewer-bot@v1
         with:
           deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          # forge-github only mounts when a token is supplied; without it the
+          # pipeline fails at authorize with "no forge provider registered".
+          github-token: ${{ github.token }}
 
       # Outputs are written even when the step above fails, so read them under
       # always(). Untrusted strings go through env — never `run: echo "${{ ... }}"`,
