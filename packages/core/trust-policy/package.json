@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/trust-policy",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Actor permission to TrustLevel resolution and tool execution gating.",
   "license": "MIT",

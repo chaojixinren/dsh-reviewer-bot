@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/progress",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Sticky progress comment lifecycle reporter.",
   "license": "MIT",
