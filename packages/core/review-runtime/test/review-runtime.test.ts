@@ -100,7 +100,11 @@ function gatewayFixture(over: Partial<FakeGateway> = {}): ForgeRegistry {
     fetchFile: async () => 'file content',
     createComment: async () => commentId('c-1'),
     updateComment: async () => {},
-    createInlineComments: async (): Promise<PublishStats> => ({ published: 1, degradedToSummary: 0, failed: 0 }),
+    createInlineComments: async (_target, findings, _botId): Promise<PublishStats> => ({
+      published: findings.length,
+      degradedToSummary: 0,
+      failed: 0,
+    }),
     findStickyComment: async () => undefined,
     listFailedChecks: async (): Promise<readonly CheckRun[]> => [checkRunFixture()],
     fetchLog: async () => 'job failed: null pointer dereference',
@@ -2018,7 +2022,9 @@ describe('suppressResolved wildcard', () => {
 
   it('suppresses any rule under a glob with an empty ruleId', () => {
     const finding = mkFinding({ ruleId: ruleId('whatever/rule'), anchor: { path: 'src/a.ts', line: 10, side: 'right', anchored: true } })
-    const exception = resolvedFixture({ pathGlob: 'src/**', ruleId: ruleId(''), path: '', title: '' })
+    // An empty/absent ruleId on a glob means "suppress any rule" — represented
+    // by omitting the branded `ruleId` (the matcher treats `?? ''` as "any").
+    const exception = resolvedFixture({ pathGlob: 'src/**', ruleId: undefined, path: '', title: '' })
     expect(suppressResolved([finding], [exception]).suppressed).toHaveLength(1)
   })
 })
@@ -2202,14 +2208,17 @@ describe('isSafeGlobPattern', () => {
 })
 
 describe('fetchNeighborContents', () => {
+  // Only `src/index.ts` is changed; `src/a.ts` (forward import) and `src/b.ts`
+  // (reverse importer) are *unchanged* neighbors the enrichment should fetch.
+  // Files already in the diff are intentionally excluded — the model already
+  // has their content, so the budget is spent only on what it cannot see.
   const imports = new Map<string, readonly string[]>([
-    ['src/a.ts', ['./b']],
-    ['src/b.ts', []],
+    ['src/index.ts', ['./a']],
+    ['src/b.ts', ['./index']],
   ])
   const diff: UnifiedDiff = {
     files: [
-      { path: 'src/a.ts', hunks: [], binary: false },
-      { path: 'src/b.ts', hunks: [], binary: false },
+      { path: 'src/index.ts', hunks: [], binary: false },
     ],
   }
 
