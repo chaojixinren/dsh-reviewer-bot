@@ -48,15 +48,9 @@ jobs:
           SUMMARY: ${{ steps.review.outputs.summary }}
           BLOCKERS: ${{ steps.review.outputs.blockers-count }}
 
-      # TEMP diagnostics: print the terminal envelope fields so a silent
-      # short-circuit is attributable to a phase + error.
+      # TEMP diagnostics: print the terminal envelope (phase/error/trust/forge)
+      # so a silent short-circuit is attributable to a phase + error.
       - if: always()
-        run: node -e 'console.log(JSON.stringify({conclusion: process.env.CONCLUSION, code: process.env.CODE, message: process.env.MESSAGE, trust: process.env.TRUST, forge: process.env.FORGE, duration: process.env.DURATION, result: process.env.RESULT}, null, 2))'
+        run: node -e 'console.log(process.env.RESULT)'
         env:
-          CONCLUSION: ${{ steps.review.outputs.conclusion }}
-          CODE: ${{ steps.review.outputs.error-code }}
-          MESSAGE: ${{ steps.review.outputs.error-message }}
-          TRUST: ${{ steps.review.outputs.trust }}
-          FORGE: ${{ steps.review.outputs.forge }}
-          DURATION: ${{ steps.review.outputs.duration-ms }}
           RESULT: ${{ steps.review.outputs.result-json }}
