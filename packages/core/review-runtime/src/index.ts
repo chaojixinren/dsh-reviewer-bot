@@ -85,18 +85,22 @@ export interface Config {
    * RFC N2). A finding whose `ruleId` has an entry is relaxed to the override
    * severity (never escalated). Empty map → current behavior.
    */
-  severityOverrides: Record<string, Severity>
+  // Optional: the resolved config (built directly by consumers such as
+  // `reviewRuntimeConfig` in driver-cli / runtime-bootstrap) need not set them,
+  // and the schema defaults them when config is parsed. All three default to a
+  // no-op so the runtime behavior is unchanged unless the maintainer opts in.
+  severityOverrides?: Record<string, Severity>
   /**
    * Within-shard near-duplicate clustering window in diff lines (RFC N3).
    * Findings of the same rule + path within ±`clusterWindow` lines collapse to
-   * one. `0` disables clustering (current behavior).
+   * one. `0` (or absent) disables clustering (current behavior).
    */
-  clusterWindow: number
+  clusterWindow?: number
   /**
    * Budget (bytes) for neighbor file contents injected into the review context
-   * (RFC C1). `0` disables neighbor enrichment (current behavior).
+   * (RFC C1). `0` (or absent) disables neighbor enrichment (current behavior).
    */
-  neighborBytes: number
+  neighborBytes?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -2585,7 +2589,7 @@ export async function runReview(
     let bounded = intent === 'diagnose'
       ? await assembleDiagnoseContext(request, diff, deps, imports, undefined)
       : assembleContext(request, diff, deps, imports, undefined)
-    if (bounded.rules.length > 0 && config.neighborBytes > 0 && imports !== undefined && imports.size > 0) {
+    if (bounded.rules.length > 0 && config.neighborBytes !== undefined && config.neighborBytes > 0 && imports !== undefined && imports.size > 0) {
       neighbors = await fetchNeighborContents(event.forgeId, deps.forges, event.target, diff, imports, config.neighborBytes)
       bounded = intent === 'diagnose'
         ? await assembleDiagnoseContext(request, diff, deps, imports, neighbors)
@@ -2633,7 +2637,7 @@ export async function runReview(
     if (config.severityOverrides !== undefined && Object.keys(config.severityOverrides).length > 0) {
       validated = { ...validated, findings: applySeverityOverrides(validated.findings, config.severityOverrides) }
     }
-    if (config.clusterWindow > 0) {
+    if (config.clusterWindow !== undefined && config.clusterWindow > 0) {
       const clustered = clusterWithinShard(validated.findings, config.clusterWindow)
       validated = { ...validated, findings: clustered.findings }
     }
