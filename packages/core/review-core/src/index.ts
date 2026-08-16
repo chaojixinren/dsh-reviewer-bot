@@ -56,7 +56,7 @@ export interface Capabilities {
 // Intent and events
 // ---------------------------------------------------------------------------
 
-export type ReviewIntent = 'review' | 'explain' | 'diagnose' | 'fix' | 'rules' | 'none'
+export type ReviewIntent = 'review' | 'explain' | 'diagnose' | 'fix' | 'rules' | 'accept' | 'forget' | 'none'
 
 /** A forge webhook or CI event after normalization. Untrusted throughout. */
 export interface NormalizedEvent {
@@ -127,6 +127,29 @@ export interface Patch {
   readonly diff: string
 }
 
+/**
+ * A maintainer-accepted exception persisted across PRs (cross-PR memory).
+ *
+ * `key` is the `findingMemoryKey` of the finding that was accepted; the other
+ * fields are the human-readable identity kept alongside it for audit and for
+ * explaining WHY a later finding was suppressed (docs/07).
+ */
+export interface ResolvedException {
+  /** The `findingMemoryKey` this exception suppresses. */
+  readonly key: string
+  readonly path: string
+  readonly ruleId?: RuleId
+  readonly title: string
+  /** Why the finding was accepted; surfaced to future reviewers as context. */
+  readonly reason: string
+  /** Actor login that accepted it. */
+  readonly resolvedBy: string
+  /** The change request where it was accepted, when known. */
+  readonly changeRequestId?: ChangeRequestId
+  /** Epoch ms when it was accepted. */
+  readonly resolvedAt: number
+}
+
 // ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
@@ -150,6 +173,7 @@ export type Phase =
   | 'snapshot'
   | 'publish'
   | 'mutate'
+  | 'memory'
   | 'report'
 
 export interface Failure {
@@ -227,6 +251,8 @@ export interface ReviewResult {
   readonly timing?: ResultTiming
   /** Proposals rejected during validation, with reasons, for auditability. */
   readonly discarded: readonly DiscardedProposal[]
+  /** Findings suppressed by cross-PR memory (maintainer-accepted exceptions). */
+  readonly suppressed?: readonly SuppressedFinding[]
   /** The intent that ran. Absent only when the run failed before routing. */
   readonly operation?: ReviewIntent
   /** The forge provider that produced the event. Absent before ingest succeeds. */
@@ -274,6 +300,22 @@ export interface RulePackSummary {
 export interface DiscardedProposal {
   readonly reason: string
   readonly rawTitle: string
+}
+
+/**
+ * A finding suppressed by cross-PR memory: a valid, already-validated finding
+ * whose `findingMemoryKey` matches a maintainer-accepted exception. Kept
+ * separately from `discarded` (validation rejections) so the two failure modes
+ * stay distinguishable in `result-json`.
+ */
+export interface SuppressedFinding {
+  readonly key: string
+  readonly path: string
+  readonly title: string
+  readonly severity: Severity
+  /** The actor who accepted the exception, for the audit trail. */
+  readonly resolvedBy: string
+  readonly reason: string
 }
 
 /**
@@ -846,6 +888,30 @@ export function findingDedupeKey(finding: Finding): string {
     finding.ruleId ?? '',
     finding.title.trim().toLowerCase(),
   ])
+}
+
+/**
+ * Cross-PR memory identity (docs/07). Deliberately NOT `findingDedupeKey`:
+ * that one identifies the same problem reported from two diff shards within ONE
+ * run, so it folds in the anchor line (stable inside one diff). Lines shift
+ * between revisions, so a cross-PR identity must be line-agnostic — it keeps
+ * only `path + ruleId + normalized title`, the three fields that name "the same
+ * problem" regardless of where it moved to.
+ *
+ * JSON-encoded for the same collision-resistance reason as `findingDedupeKey`:
+ * a `ruleId` or `title` containing the delimiter cannot shift field boundaries.
+ */
+export function findingMemoryKey(finding: Finding): string {
+  return memoryKey(finding.anchor.path, finding.ruleId ?? '', finding.title)
+}
+
+/**
+ * Builds a cross-PR memory key from its three components. Exposed separately
+ * because the `@dsr accept` command carries the components (a JSON array) and
+ * the runtime must derive the identical key without fabricating a full `Finding`.
+ */
+export function memoryKey(path: string, ruleId: string, title: string): string {
+  return JSON.stringify([path, ruleId, title.trim().toLowerCase()])
 }
 
 /** Feeds the `blockers-count` scalar output. */

@@ -77,6 +77,8 @@ export const INTENT_MIN_TRUST: Readonly<Record<ReviewIntent, TrustLevel>> = Obje
   rules: 'untrusted',
   diagnose: 'trusted-read',
   fix: 'trusted-write',
+  accept: 'trusted-read',
+  forget: 'trusted-read',
   none: 'none',
 })
 
