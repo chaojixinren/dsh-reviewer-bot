@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M3（写模式）已完成** 阶段：M1 只读评审闭环、M2 规则与本地化已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。
+项目处于 **M4（生态与规模化）** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器、`trust-policy` 信任判定、`forge-github` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`、`mutate` + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图）。M4 已开始：`bundle 发布`（#42）已落地——`@dshrb/bundle` 可装入既有 profile 并与生态插件共享 ctx；`forge-gitlab` / 分片并行 / `driver-webhook` / 跨 PR 记忆尚未实现。
 
 动手前请先读：
 

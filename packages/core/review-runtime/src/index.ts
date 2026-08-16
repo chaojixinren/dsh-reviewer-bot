@@ -50,6 +50,11 @@ export interface Config {
    *  Mirrors `@dshrb/trust-policy`'s `allowWrite`; the driver sets both from the
    *  same Action input so they never drift. */
   allowWrite: boolean
+  /** Whether the `diagnose` intent is enabled. When false, `check-failed`
+   *  events and `@dsr diagnose` route to `none` instead of starting the
+   *  diagnose pipeline. Diagnose is read-only (`trusted-read`, never
+   *  `allow-write`), so this is an opt-out noise control, not a write gate. */
+  enableDiagnose: boolean
   /** Lowest severity to publish. */
   minSeverity: Severity
   /**
@@ -69,6 +74,7 @@ export const Config: Schema<Config> = Schema.object({
   parallelShards: Schema.boolean().default(true),
   snapshotReplay: Schema.boolean().default(true),
   allowWrite: Schema.boolean().default(false),
+  enableDiagnose: Schema.boolean().default(true),
   minSeverity: Schema.union(['blocker', 'major', 'minor', 'nit', 'info'] as const).default('minor'),
   testCommands: Schema.array(Schema.array(Schema.string())).default([]),
   validationEnv: Schema.array(Schema.string()).default([]),
@@ -390,11 +396,8 @@ export async function ingest(raw: unknown, _deps: StageDeps): Promise<Normalized
 
 const COMMAND_PATTERN = /^\s*@dsr\s+(\S+)/i
 
-/**
- * Commands must appear on the comment's FIRST line, so quoting someone else's
- * comment cannot trigger a run. A non-first-line occurrence routes to `none`.
- */
-export function route(event: NormalizedEvent): ReviewIntent {
+/** Raw intent recognition, before the `enableDiagnose` switch is applied. */
+function routeUnchecked(event: NormalizedEvent): ReviewIntent {
   if (event.kind === 'change-request') {
     return 'review'
   }
@@ -418,6 +421,23 @@ export function route(event: NormalizedEvent): ReviewIntent {
     }
   }
   return 'none'
+}
+
+/**
+ * Commands must appear on the comment's FIRST line, so quoting someone else's
+ * comment cannot trigger a run. A non-first-line occurrence routes to `none`.
+ *
+ * The `diagnose` intent is switchable independently of write mode: when
+ * `enableDiagnose` is false, both a `check-failed` event and `@dsr diagnose`
+ * fall through to `none` (neutral), so the read-only diagnostic pipeline is an
+ * opt-out noise control rather than a write-mode gate.
+ */
+export function route(event: NormalizedEvent, options: { enableDiagnose?: boolean } = {}): ReviewIntent {
+  const intent = routeUnchecked(event)
+  if (intent === 'diagnose' && options.enableDiagnose === false) {
+    return 'none'
+  }
+  return intent
 }
 
 /**
@@ -1583,7 +1603,7 @@ export async function runReview(
   try {
     event = await ingest(raw, deps)
     phase = 'route'
-    intent = route(event)
+    intent = route(event, { enableDiagnose: config.enableDiagnose })
 
     if (intent === 'none') {
       return report({

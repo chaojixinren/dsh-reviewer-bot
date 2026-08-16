@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/bundle",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "DSH bundle: installs DSH Reviewer Bot into a profile with `dsh plugin add`.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "bundle"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "cordis.patch.yml"
   ],
@@ -16,13 +24,13 @@
     "@deepseek-ai/dsh": "0.1.0-rc.6"
   },
   "dependencies": {
-    "@dshrb/forge": "workspace:*",
-    "@dshrb/forge-github": "workspace:*",
-    "@dshrb/progress": "workspace:*",
-    "@dshrb/review-runtime": "workspace:*",
-    "@dshrb/rule-registry": "workspace:*",
-    "@dshrb/rules-baseline": "workspace:*",
-    "@dshrb/tool-review": "workspace:*",
-    "@dshrb/trust-policy": "workspace:*"
+    "@dshrb/forge": "workspace:0.1.0",
+    "@dshrb/forge-github": "workspace:0.1.0",
+    "@dshrb/progress": "workspace:0.1.0",
+    "@dshrb/review-runtime": "workspace:0.1.0",
+    "@dshrb/rule-registry": "workspace:0.1.0",
+    "@dshrb/rules-baseline": "workspace:0.1.0",
+    "@dshrb/tool-review": "workspace:0.1.0",
+    "@dshrb/trust-policy": "workspace:0.1.0"
   }
 }
