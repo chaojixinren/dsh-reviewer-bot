@@ -266,6 +266,18 @@ function parseSeverity(raw: string | undefined): 'blocker' | 'major' | 'minor' |
   throw new InputError(`input 'min-severity' must be one of ${SEVERITIES.join(', ')}, got '${raw}'`)
 }
 
+/** Validates the `timeout-minutes` input as a positive finite number of minutes. */
+function parseTimeoutMinutes(raw: string | undefined): number {
+  if (raw === undefined) return 25
+  const value = Number(raw)
+  // `Number('abc')` is NaN and `Number('')` is 0: both would silently collapse
+  // the watchdog to an immediate timeout instead of failing the run loudly.
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new InputError(`input 'timeout-minutes' must be a positive number of minutes, got '${raw}'`)
+  }
+  return value
+}
+
 /**
  * Boots the Cordis container and returns a `runReview` bound to the resolved
  * configuration. The plugin chain and agent loop are wired by
@@ -285,7 +297,7 @@ export async function createRunner(inputs: ActionInputs, _env: NodeJS.ProcessEnv
     allowWrite: parseBool(inputs['allow-write'], false),
     enableDiagnose: true,
     minSeverity: parseSeverity(inputs['min-severity']),
-    timeoutMinutes: inputs['timeout-minutes'] === undefined ? 25 : Number(inputs['timeout-minutes']),
+    timeoutMinutes: parseTimeoutMinutes(inputs['timeout-minutes']),
     ...(inputs['test-commands'] === undefined ? {} : { testCommands: inputs['test-commands'] }),
   })
   return runtime.runReview
