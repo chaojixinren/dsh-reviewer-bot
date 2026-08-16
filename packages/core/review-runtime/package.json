@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/review-runtime",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "The eight-stage review pipeline orchestrator.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/core/review-runtime"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

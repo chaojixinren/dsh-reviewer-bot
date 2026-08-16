@@ -93,6 +93,17 @@ DSH 处于 developer preview，rc 之间可能有破坏性变更，因此**一�
 
 策略：跟随上游 rc 但不追最新，滞后一个 rc 以规避回归。
 
+### 发布到 npm
+
+`@dshrb/bundle` 是配置层（`dsh.bundle.patch` → `cordis.patch.yml`），按**包名**引用插件，因此 `dsh plugin add @dshrb/bundle` 只有在它的依赖闭包全部在 npm 上才可解析。可发布集是 [`scripts/gen-package-manifests.mjs`](./scripts/gen-package-manifests.mjs) 顶部的 `PUBLISHABLE` 常量（`review-core` + 九个插件）；驱动、`forge-local`、`signature-probe` 保持 `private`。
+
+发布要点：
+
+- 可发布包由脚本生成 `license` / `repository` / `publishConfig` 并去掉 `private`；改完重新生成，不要手改各包 `package.json`。
+- `workspace:*` / `workspace:0.1.0` 只在本地链接 workspace；pnpm 在 `publish` 时把它们改写为精确 `0.1.0`，发布物里**不出现 workspace 协议**。
+- 实际发布走 [`.github/workflows/publish.yml`](./.github/workflows/publish.yml)（手动触发）：`check` → `probe` → `build` → `pnpm -r publish`（拓扑序，跳过 `private` 包）。需在仓库 secrets 配置 `NPM_TOKEN`（Automation 类型，`repo` + `publish`）。
+- 首次发布前置：LICENSE（#53）已合入、release build（#50）已接通后再触发；发布后执行 `dsh plugin add @dshrb/bundle` 验证可装入既有 profile。
+
 ### 新增 forge provider
 
 按 [`docs/06-forge-abstraction.md`](./docs/06-forge-abstraction.md) 的完整清单：

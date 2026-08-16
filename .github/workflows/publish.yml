@@ -1,0 +1,67 @@
+name: Publish
+
+# Publishes the npm packages that make up `@dshrb/bundle` in dependency order.
+#
+# `@dshrb/bundle` is a config-only layer (`dsh.bundle.patch` -> cordis.patch.yml)
+# that references its plugins by package name, so `dsh plugin add @dshrb/bundle`
+# only resolves once every package in its dependency closure is on the registry.
+# The closure is exactly the `PUBLISHABLE` set in scripts/gen-package-manifests.mjs
+# (review-core + the nine bundle plugins) plus the bundle itself; everything
+# else (drivers, forge-local, signature-probe) stays `private`.
+#
+# pnpm rewrites `workspace:*` / `workspace:0.1.0` to the exact `0.1.0` version in
+# the published manifest, so `dsh plugin add` gets pinned versions, never the
+# workspace protocol.
+#
+# Run manually from the Actions tab after the release build (#50) and LICENSE
+# (#53) land. Requires an `NPM_TOKEN` (Automation type, `repo` + `publish`).
+on:
+  workflow_dispatch:
+    inputs:
+      dist-tag:
+        description: 'npm dist-tag to publish under'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish @dshrb/bundle + deps
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm run check
+
+      - name: Probe
+        run: pnpm run probe
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Publish
+        # `-r` publishes non-private packages in topological order and skips the
+        # `private` ones (drivers / forge-local / signature-probe). `--no-git-checks`
+        # skips the dirty-working-tree guard (the build above writes lib/).
+        run: pnpm -r publish --no-git-checks --tag "${{ github.event.inputs.dist-tag || 'latest' }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
