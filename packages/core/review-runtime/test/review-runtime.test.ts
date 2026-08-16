@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeRequestId, calibrateSeverity, commentId, commitSha, findingId, forgeId, isSafeGlobPattern, matchesGlob, requestId, ruleId, wildcardMemoryKey } from '@dshrb/review-core'
+import { changeRequestId, calibrateSeverity, commentId, commitSha, findingId, forgeId, isSafeGlobPattern, requestId, ruleId, wildcardMemoryKey } from '@dshrb/review-core'
 import type {
   Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget, SuppressedFinding,
 } from '@dshrb/review-core'
@@ -2054,6 +2054,26 @@ describe('parseMemoryReference wildcard', () => {
   })
 })
 
+describe('wildcard command builders (RFC N1)', () => {
+  it('acceptRuleCommand emits a command parseMemoryReference round-trips', () => {
+    const command = acceptRuleCommand('correctness/eq')
+    expect(command).toBe('@dsr accept-rule correctness/eq')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: '', wildcard: 'rule' })
+  })
+
+  it('acceptGlobCommand emits a glob-only command that round-trips', () => {
+    const command = acceptGlobCommand('src/**')
+    expect(command).toBe('@dsr accept-glob src/**')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: '', title: '', reason: '', wildcard: 'glob', pathGlob: 'src/**' })
+  })
+
+  it('acceptGlobCommand emits a glob+rule command that round-trips', () => {
+    const command = acceptGlobCommand('src/**/*.ts', 'correctness/eq')
+    expect(command).toBe('@dsr accept-glob src/**/*.ts correctness/eq')
+    expect(parseMemoryReference(command)).toEqual({ ok: true, path: '', ruleId: 'correctness/eq', title: '', reason: '', wildcard: 'glob', pathGlob: 'src/**/*.ts' })
+  })
+})
+
 describe('runReview wildcard memory commands (RFC N1, end-to-end)', () => {
   it('records a rule-only exception for @dsr accept-rule', async () => {
     const recorded: Array<{ repo: string; exception: ResolvedException }> = []
@@ -2204,6 +2224,11 @@ describe('isSafeGlobPattern', () => {
     expect(isSafeGlobPattern('C:/x')).toBe(false)
     expect(isSafeGlobPattern('../x')).toBe(false)
     expect(isSafeGlobPattern('')).toBe(false)
+  })
+
+  it('rejects patterns with too many `**` segments (recursion bound)', () => {
+    expect(isSafeGlobPattern('**/**/**/**/**/**/**/**/**/x')).toBe(false)
+    expect(isSafeGlobPattern('src/**/generated/**/test/**')).toBe(true)
   })
 })
 

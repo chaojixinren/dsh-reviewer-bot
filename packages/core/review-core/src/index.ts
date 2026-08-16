@@ -661,6 +661,13 @@ export function isSafeRelativePath(path: string): boolean {
  * is stored as a `ResolvedException.pathGlob`. Still rejects absolute paths,
  * Windows drive letters, `..` traversal, and NUL bytes — a glob can narrow the
  * match set but must never reach outside the repo.
+ *
+ * Also bounds the number of full `**` segments. `matchesGlob` resolves each
+ * interior `**` by recursing over every possible segment split, which is
+ * exponential in the number of `**` segments — a pathological pattern of many
+ * `**` segments before a non-matching literal would hang the review against a
+ * deep path. No legitimate repo glob needs more than a handful of `**`, so
+ * reject beyond a safe ceiling.
  */
 export function isSafeGlobPattern(pattern: string): boolean {
   if (pattern === '' || pattern.includes('\0')) {
@@ -671,8 +678,15 @@ export function isSafeGlobPattern(pattern: string): boolean {
   }
   // Split on either slash, matching `isSafeRelativePath`, so a backslash-based
   // `..` traversal (`..\x`, `src\..\..\etc`) is also rejected for parity.
-  return !pattern.split(/[/\\]/).includes('..')
+  if (pattern.split(/[/\\]/).includes('..')) {
+    return false
+  }
+  const starSegments = pattern.split('/').filter((segment) => segment === '**').length
+  return starSegments <= MAX_GLOB_STAR_SEGMENTS
 }
+
+/** Ceiling on full `**` segments in a glob, bounding `matchesGlob` recursion. */
+const MAX_GLOB_STAR_SEGMENTS = 8
 
 // ---------------------------------------------------------------------------
 // Path glob matching
