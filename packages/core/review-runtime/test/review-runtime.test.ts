@@ -538,6 +538,32 @@ describe('assembleContext', () => {
     expect(bounded.rules.map((rule) => rule.id)).toEqual([ruleId('correctness/eq')])
     expect(bounded.shards.length).toBeGreaterThan(0)
   })
+
+  it('drops changed files no rule applies to from the shards', async () => {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    const deps = depsFixture({
+      matchRules: (path) => (path.endsWith('.svg') ? [] : [ruleFixture()]),
+    })
+    const mixed: UnifiedDiff = {
+      files: [
+        { path: 'src/index.ts', hunks: [hunkFixture('a', 1)], binary: false },
+        { path: 'assets/banner.svg', hunks: [hunkFixture('b', 2)], binary: false },
+      ],
+    }
+    const bounded = assembleContext(request, mixed, deps)
+    expect(bounded.shards.flatMap((shard) => shard.files)).toEqual(['src/index.ts'])
+    expect(bounded.rules).toHaveLength(1)
+  })
+
+  it('produces no shards and no rules when nothing applies', async () => {
+    const event = await ingest(prPayload(), depsFixture())
+    const { request } = await authorize(event, 'review', depsFixture())
+    const deps = depsFixture({ matchRules: () => [] })
+    const bounded = assembleContext(request, diffFixture(), deps)
+    expect(bounded.shards).toEqual([])
+    expect(bounded.rules).toEqual([])
+  })
 })
 
 // --- validate ---------------------------------------------------------------
@@ -810,6 +836,12 @@ describe('buildSummary', () => {
 
   it('says no findings when empty', () => {
     expect(buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [])).toContain('No findings.')
+  })
+
+  it('says nothing to review when no rule applied, instead of claiming a clean review', () => {
+    const text = buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [], 0, [], true)
+    expect(text).toContain('nothing to review')
+    expect(text).not.toContain('No findings.')
   })
 
   it('does not claim "No findings." when every finding was suppressed', () => {
@@ -1266,6 +1298,23 @@ describe('runReview', () => {
     expect(result.trust).toBe('trusted-read')
     expect(result.forgeId).toBe(GITHUB)
     expect(result.summary).toContain('loose equality')
+  })
+
+  it('skips the agent entirely when no rule applies to any changed file', async () => {
+    let ranAgent = false
+    const deps = depsFixture({
+      matchRules: () => [],
+      runAgent: async () => {
+        ranAgent = true
+        return { proposals: [], patches: [] }
+      },
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(ranAgent).toBe(false)
+    expect(result.verdict.status).toBe('success')
+    expect(result.verdict.findingsCount).toBe(0)
+    expect(result.findings).toEqual([])
+    expect(result.summary).toContain('nothing to review')
   })
 
   it('fans shards out, tolerates a partial failure, and declares the incomplete shards', async () => {

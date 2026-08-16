@@ -746,14 +746,16 @@ export function assembleContext(
   request: ReviewRequest, diff: UnifiedDiff, deps: StageDeps,
   imports?: ReadonlyMap<string, readonly string[]>,
 ): BoundedContext {
-  const shards = shardDiff(diff, deps.shardBytes, imports)
-  const paths = new Set<string>()
-  for (const file of diff.files) {
-    paths.add(file.path)
-  }
+  // Only ship files some rule applies to. A changed file no rule matches (an
+  // SVG, an image, docs) has nothing the agent could anchor or cite, so bundling
+  // it into a shard only spends tokens — and a single multi-KB SVG path line can
+  // stall the model. Filtering here also lets `runReview` skip the model
+  // entirely when no changed file matches any rule.
+  const reviewed = diff.files.filter((file) => deps.matchRules(file.path).length > 0)
+  const shards = shardDiff({ ...diff, files: reviewed }, deps.shardBytes, imports)
   const rules = new Map<string, Rule>()
-  for (const path of paths) {
-    for (const rule of deps.matchRules(path)) {
+  for (const file of reviewed) {
+    for (const rule of deps.matchRules(file.path)) {
       rules.set(rule.id, rule)
     }
   }
@@ -1155,12 +1157,22 @@ export interface PublishResult {
 export function buildSummary(
   findings: readonly Finding[], stats: PublishStats, degraded: readonly Finding[],
   incompleteShards = 0, suppressed: readonly SuppressedFinding[] = [],
+  nothingToReview = false,
 ): string {
   const lines: string[] = ['## DSH Reviewer Bot summary', '']
   if (findings.length === 0 && degraded.length === 0) {
-    // When every finding was suppressed as an accepted exception, "No findings."
-    // would contradict the "suppressed N" note that follows, so say what happened.
-    lines.push(suppressed.length > 0 ? 'All findings were suppressed as accepted exceptions.' : 'No findings.')
+    if (suppressed.length > 0) {
+      // When every finding was suppressed as an accepted exception, "No findings."
+      // would contradict the "suppressed N" note that follows, so say what happened.
+      lines.push('All findings were suppressed as accepted exceptions.')
+    } else if (nothingToReview) {
+      // The model never ran: no rule applied to any changed file, so there was
+      // nothing a finding could anchor or cite. Say so rather than "No findings.",
+      // which would falsely imply the diff was reviewed and came back clean.
+      lines.push('No applicable rules for the changed files — nothing to review.')
+    } else {
+      lines.push('No findings.')
+    }
   } else {
     for (const finding of findings) {
       lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line}) — accept with \`${acceptCommand(finding)}\``)
@@ -1191,6 +1203,7 @@ export function buildSummary(
 export async function publish(
   request: ReviewRequest, findings: readonly Finding[], deps: StageDeps,
   incompleteShards = 0, suppressed: readonly SuppressedFinding[] = [],
+  nothingToReview = false,
 ): Promise<PublishResult> {
   const target = request.event.target
   const sink = deps.forges.require<CommentSink>(request.event.forgeId, ['comment-sink', 'inline-comments'])
@@ -1201,7 +1214,7 @@ export async function publish(
   const stats = await sink.createInlineComments(target, visible, bot.id)
   const degraded = visible.filter((finding) => !finding.anchor.anchored)
   const anchored = visible.filter((finding) => finding.anchor.anchored)
-  const summary = buildSummary(anchored, stats, degraded, incompleteShards, suppressed)
+  const summary = buildSummary(anchored, stats, degraded, incompleteShards, suppressed, nothingToReview)
   const commentId = await sink.createComment(target, summary)
   return { commentId, summary, ...stats }
 }
@@ -2307,10 +2320,19 @@ export async function runReview(
       ? await assembleDiagnoseContext(request, diff, deps, imports)
       : assembleContext(request, diff, deps, imports)
 
-    phase = 'reason'
-    const output = await reason(bounded, deps, controller.signal)
-    incompleteShards = output.incompleteShards
-    shardMs = output.shardMs
+    // No rule applies to any changed file (a docs/SVG/image-only PR): there is
+    // nothing the agent could anchor or cite, so skip the model entirely. This
+    // also keeps an irrelevant multi-KB diff out of the LLM, where it would only
+    // burn tokens and wall-clock time.
+    let output: AgentOutput
+    if (bounded.rules.length === 0) {
+      output = { proposals: [], patches: [] }
+    } else {
+      phase = 'reason'
+      output = await reason(bounded, deps, controller.signal)
+      incompleteShards = output.incompleteShards
+      shardMs = output.shardMs
+    }
 
     phase = 'validate'
     let validated: { findings: readonly Finding[]; discarded: readonly DiscardedProposal[] }
@@ -2377,7 +2399,10 @@ export async function runReview(
     }
 
     phase = 'publish'
-    published = await publish(request, validated.findings, deps, incompleteShards ?? 0, suppressed ?? [])
+    published = await publish(
+      request, validated.findings, deps, incompleteShards ?? 0, suppressed ?? [],
+      bounded.rules.length === 0,
+    )
 
     // Write mode only: land the accepted patches inside the sandbox boundary and
     // report the isolation profile honestly (docs/03, docs/07 line 95).
