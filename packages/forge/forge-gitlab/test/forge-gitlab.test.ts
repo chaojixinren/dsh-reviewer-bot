@@ -418,6 +418,21 @@ describe('createInlineComments', () => {
     await expect(gateway.createInlineComments(TARGET, [finding()], BOT_ID))
       .rejects.toThrow(/diff_refs/)
   })
+
+  it('degrades unanchored findings to the summary even when diff_refs is absent', async () => {
+    const stub = stubFetch([
+      { match: '/merge_requests/7/notes', method: 'GET', json: [] },
+      { match: '/merge_requests/7', method: 'GET', json: {} },
+    ])
+    const gateway = createGitLabGateway(config(), stub)
+    const stats = await gateway.createInlineComments(TARGET, [
+      finding({ anchor: anchorFallback('src/app.ts', 99, 'outside every hunk') as Anchor }),
+    ], BOT_ID)
+    expect(stats).toEqual({ published: 0, degradedToSummary: 1, failed: 0 })
+    // An unanchored finding needs no position, so the diff_refs lookup is never issued.
+    expect(stub.calls).toHaveLength(1)
+    expect(stub.calls[0]?.url).toContain('/merge_requests/7/notes')
+  })
 })
 
 describe('findStickyComment', () => {
@@ -545,6 +560,24 @@ describe('mutation sink', () => {
     const actions = (post?.body as { actions?: readonly CommitAction[] } | undefined)?.actions
     expect(actions).toEqual([
       { action: 'update', file_path: 'src/app.ts', content: 'bbb\nccc\n' },
+    ])
+  })
+
+  it('folds multiple patches on the same file into one cumulative action', async () => {
+    const stub = stubFetch([
+      { match: '/repository/files/src%2Fapp.ts/raw', text: 'aaa\nbbb\n' },
+      { match: '/repository/commits', method: 'POST', json: { id: 'a'.repeat(40) } },
+      { match: '/projects/acme%2Fwidgets', json: { default_branch: 'main' } },
+    ])
+    const gateway = createGitLabGateway(config(), stub)
+    await gateway.commitPatches('acme/widgets', 'fix/1', [
+      { path: 'src/app.ts', diff: '@@ -1,1 +1,1 @@\n-aaa\n+AAA' },
+      { path: 'src/app.ts', diff: '@@ -2,1 +2,1 @@\n-bbb\n+BBB' },
+    ], 'apply suggestions')
+    const post = stub.calls.find((call) => call.method === 'POST')
+    const actions = (post?.body as { actions?: readonly CommitAction[] } | undefined)?.actions
+    expect(actions).toEqual([
+      { action: 'update', file_path: 'src/app.ts', content: 'AAA\nBBB\n' },
     ])
   })
 

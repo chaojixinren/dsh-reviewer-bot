@@ -607,25 +607,38 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
       }
     }
 
-    // The three position SHAs must come from the MR's `diff_refs`, never the
-    // head sha (docs/06:113). Missing `diff_refs` is an explicit degradation,
-    // not a default — a self-hosted instance that omits it must not have its
-    // inline notes silently placed with a fabricated SHA.
-    const mr = await getJson<{ diff_refs?: unknown }>(mrPath(target))
-    const diffRefs = asRecord(mr.diff_refs)
-    const baseSha = diffRefs === undefined ? undefined
-      : (typeof diffRefs.base_sha === 'string' ? diffRefs.base_sha : undefined)
-    const headSha = diffRefs === undefined ? undefined
-      : (typeof diffRefs.head_sha === 'string' ? diffRefs.head_sha : undefined)
-    const startSha = diffRefs === undefined ? undefined
-      : (typeof diffRefs.start_sha === 'string' ? diffRefs.start_sha : undefined)
-    if (baseSha === undefined || headSha === undefined || startSha === undefined) {
-      throw new TypeError(`gitlab: merge request ${iid} has no usable diff_refs; cannot anchor inline notes`)
-    }
-
     let published = 0
     let degradedToSummary = 0
     let failed = 0
+
+    interface DiffRefs { readonly baseSha: string; readonly headSha: string; readonly startSha: string }
+    let diffRefs: DiffRefs | undefined
+
+    // The three position SHAs must come from the MR's `diff_refs`, never the
+    // head sha (docs/06:113). Missing `diff_refs` is an explicit failure, not a
+    // default — a self-hosted instance that omits it must not have its inline
+    // notes silently placed with a fabricated SHA. It is resolved lazily so an
+    // all-unanchored batch, or a batch whose anchored findings were already
+    // published, degrades to the summary instead of failing on a `diff_refs`
+    // that no finding here actually needs.
+    async function resolveDiffRefs(): Promise<DiffRefs> {
+      if (diffRefs !== undefined) {
+        return diffRefs
+      }
+      const mr = await getJson<{ diff_refs?: unknown }>(mrPath(target))
+      const refs = asRecord(mr.diff_refs)
+      const baseSha = refs === undefined ? undefined
+        : (typeof refs.base_sha === 'string' ? refs.base_sha : undefined)
+      const headSha = refs === undefined ? undefined
+        : (typeof refs.head_sha === 'string' ? refs.head_sha : undefined)
+      const startSha = refs === undefined ? undefined
+        : (typeof refs.start_sha === 'string' ? refs.start_sha : undefined)
+      if (baseSha === undefined || headSha === undefined || startSha === undefined) {
+        throw new TypeError(`gitlab: merge request ${iid} has no usable diff_refs; cannot anchor inline notes`)
+      }
+      diffRefs = { baseSha, headSha, startSha }
+      return diffRefs
+    }
 
     for (const finding of findings) {
       if (!isAnchored(finding.anchor)) {
@@ -637,14 +650,15 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
         continue
       }
       const safePath = assertSafePath(finding.anchor.path)
+      const refs = await resolveDiffRefs()
       const position = finding.anchor.side === 'left'
         ? {
-            base_sha: baseSha, head_sha: headSha, start_sha: startSha,
+            base_sha: refs.baseSha, head_sha: refs.headSha, start_sha: refs.startSha,
             old_path: safePath, old_line: finding.anchor.line,
             new_path: safePath, new_line: null, position_type: 'text',
           }
         : {
-            base_sha: baseSha, head_sha: headSha, start_sha: startSha,
+            base_sha: refs.baseSha, head_sha: refs.headSha, start_sha: refs.startSha,
             new_path: safePath, new_line: finding.anchor.line,
             old_path: safePath, old_line: null, position_type: 'text',
           }
@@ -802,10 +816,23 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
 
     interface RawAction { action: 'create' | 'update'; file_path: string; content: string }
     const actions: RawAction[] = []
+    // Group patches by path so multiple hunks against the same file apply
+    // cumulatively (the runtime's mutate stage applies them sequentially).
+    // Without grouping, two patches on one path would emit duplicate
+    // `file_path` actions, which GitLab's Commits API rejects with a 400.
+    const patchesByPath = new Map<string, Patch[]>()
     for (const patch of patches) {
       const filePath = assertSafePath(patch.path)
+      const group = patchesByPath.get(filePath)
+      if (group === undefined) {
+        patchesByPath.set(filePath, [patch])
+      } else {
+        group.push(patch)
+      }
+    }
+    for (const [filePath, group] of patchesByPath) {
       const encoded = encodeURIComponent(filePath)
-      let base = ''
+      let content = ''
       let exists = true
       try {
         const response = await request(
@@ -813,7 +840,7 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
           `/projects/${project}/repository/files/${encoded}/raw?ref=${encodeURIComponent(baseBranch)}`,
           { accept: 'text/plain' },
         )
-        base = await response.text()
+        content = await response.text()
       } catch (error) {
         if (error instanceof GitLabApiError && error.status === 404) {
           exists = false
@@ -821,11 +848,14 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
           throw error
         }
       }
-      const applied = applyPatch(base, patch.diff)
-      if (!applied.ok || applied.content === undefined) {
-        throw new TypeError(`gitlab: patch for '${excerpt(patch.path)}' does not apply: ${applied.reason ?? 'unknown'}`)
+      for (const patch of group) {
+        const applied = applyPatch(content, patch.diff)
+        if (!applied.ok || applied.content === undefined) {
+          throw new TypeError(`gitlab: patch for '${excerpt(patch.path)}' does not apply: ${applied.reason ?? 'unknown'}`)
+        }
+        content = applied.content
       }
-      actions.push({ action: exists ? 'update' : 'create', file_path: filePath, content: applied.content })
+      actions.push({ action: exists ? 'update' : 'create', file_path: filePath, content })
     }
 
     interface RawCommit { id?: unknown }
