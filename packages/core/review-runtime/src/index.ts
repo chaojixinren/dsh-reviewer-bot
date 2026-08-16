@@ -1299,6 +1299,14 @@ export function parseMemoryReference(body: string): MemoryReference {
   // Wildcard forms: `@dsr accept-rule <ruleId>` / `@dsr accept-glob <glob> [ruleId]`
   // (and the `forget` equivalents). These suppress a whole class of findings
   // rather than one exact identity, so they carry no path/title.
+  //
+  // An `@dsr accept-rule` / `@dsr forget-rule` with no ruleId is a common
+  // mistake — call it out clearly rather than falling through to the generic
+  // usage message below.
+  const ruleNoArg = /^@dsr\s+(?:accept|forget)-rule\s*$/i.exec(firstLine)
+  if (ruleNoArg !== null) {
+    return { ok: false, message: 'expected `@dsr accept-rule <ruleId>` or `@dsr forget-rule <ruleId>` with a non-empty ruleId' }
+  }
   const ruleMatch = /^@dsr\s+(?:accept|forget)-rule\s+(\S+)\s*$/i.exec(firstLine)
   if (ruleMatch !== null) {
     const rule = (ruleMatch[1] ?? '').trim()
@@ -3186,7 +3194,9 @@ export async function fetchNeighborContents(
       }
     }
     for (const [importer, specs] of imports) {
-      if (importer === file) continue
+      // Skip self and files already in the diff — the model already has them,
+      // so fetching a changed importer as a "neighbor" would waste the budget.
+      if (importer === file || changed.has(importer)) continue
       for (const spec of specs) {
         if (resolveLocalImport(importer, spec) === file) {
           wanted.add(importer)
