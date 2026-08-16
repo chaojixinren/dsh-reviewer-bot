@@ -32,6 +32,9 @@ importers:
       '@deepseek-ai/dsh':
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(c7c9175e2b8dc7442491218e1cdde236)
+      '@dshrb/config':
+        specifier: workspace:0.1.1
+        version: link:../packages/core/config
       '@dshrb/forge':
         specifier: workspace:0.1.1
         version: link:../packages/core/forge
@@ -59,6 +62,19 @@ importers:
       '@dshrb/trust-policy':
         specifier: workspace:0.1.1
         version: link:../packages/core/trust-policy
+
+  packages/core/config:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.1
+        version: 3.18.1
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/dsh-settings':
+        specifier: 0.1.0-rc.6
+        version: 0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.0-rc.6(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/schemastery@3.18.1)
 
   packages/core/forge:
     dependencies:
@@ -107,6 +123,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.1
         version: 3.18.1
+      '@dshrb/config':
+        specifier: workspace:*
+        version: link:../config
       '@dshrb/forge':
         specifier: workspace:*
         version: link:../forge
@@ -257,6 +276,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.1
         version: 3.18.1
+      '@dshrb/config':
+        specifier: workspace:*
+        version: link:../config
       '@dshrb/forge':
         specifier: workspace:*
         version: link:../forge
@@ -348,6 +370,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.1
         version: 3.18.1
+      '@dshrb/config':
+        specifier: workspace:*
+        version: link:../../core/config
       '@dshrb/forge':
         specifier: workspace:*
         version: link:../../core/forge
@@ -364,6 +389,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.1
         version: 3.18.1
+      '@dshrb/config':
+        specifier: workspace:*
+        version: link:../../core/config
       '@dshrb/forge':
         specifier: workspace:*
         version: link:../../core/forge

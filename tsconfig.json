@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core/review-core" },
+    { "path": "./packages/core/config" },
     { "path": "./packages/core/forge" },
     { "path": "./packages/core/trust-policy" },
     { "path": "./packages/core/rule-registry" },

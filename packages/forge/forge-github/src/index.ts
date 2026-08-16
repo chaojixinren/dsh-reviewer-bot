@@ -64,6 +64,12 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface GitHubDeps {
   readonly fetch: FetchLike
+  /**
+   * Resolves the bearer token on each request. Defaults to `config.token`;
+   * the bundle wires this to the shared `ctx.dshrb` config so a token edited
+   * in the Web UI takes effect without a restart.
+   */
+  readonly getToken?: () => string
 }
 
 /** Thrown for any non-2xx REST response. Never includes the token. */
@@ -403,7 +409,7 @@ function findingCommentBody(finding: Finding): string {
 
 export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGateway {
   const baseUrl = config.baseUrl.replace(/\/+$/u, '')
-  const { token } = config
+  const getToken = deps.getToken ?? (() => config.token)
 
   async function request(method: string, path: string, extra?: {
     body?: unknown
@@ -411,7 +417,7 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
   }): Promise<Response> {
     const headers: Record<string, string> = {
       // The credential is attached here and nowhere else in the process.
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${getToken()}`,
       accept: extra?.accept ?? 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'user-agent': 'dsh-reviewer-bot',
@@ -888,6 +894,12 @@ export function createGitHubGateway(config: Config, deps: GitHubDeps): GitHubGat
  * plugin's fiber, so unloading the plugin unregisters the gateway.
  */
 export function apply(ctx: Context, config: Config): void {
-  const gateway = createGitHubGateway(config, { fetch: globalThis.fetch })
+  const dshrb = ctx.get('dshrb')
+  const gateway = createGitHubGateway(config, {
+    fetch: globalThis.fetch,
+    // Shared config first (Web UI + env fallback), then this plugin's own
+    // config for standalone deployments without the bundle.
+    getToken: () => (dshrb === undefined ? config.token : dshrb.get().githubToken || config.token),
+  })
   ctx.effect(() => ctx.forges.register(gateway))
 }

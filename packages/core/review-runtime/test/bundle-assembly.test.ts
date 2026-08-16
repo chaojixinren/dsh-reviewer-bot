@@ -135,12 +135,13 @@ function patch(): readonly BundleEntry[] {
 
 /** The layer order the reactive coeffects expect (docs/05:84-116). */
 const EXPECTED_NAMES = [
+  '@dshrb/config',
   '@dshrb/rule-registry',
   '@dshrb/rules-baseline',
-  '@dshrb/trust-policy',
   '@dshrb/forge',
   '@dshrb/forge-github',
   '@dshrb/forge-gitlab',
+  '@dshrb/trust-policy',
   '@dshrb/tool-review',
   '@dshrb/progress',
   '@dshrb/review-runtime',
@@ -157,12 +158,13 @@ describe('bundle cordis.patch.yml assembly', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('sets the fail-closed allowWrite default on both write-mode layers', () => {
+  it('sets the fail-closed allowWrite default in the shared config layer', () => {
     const entries = patch()
     const byName = new Map(entries.map((entry) => [entry.name, entry]))
-    expect(byName.get('@dshrb/trust-policy')?.config.allowWrite).toBe(false)
-    // review-runtime mirrors trust-policy's switch so the two never drift.
-    expect(byName.get('@dshrb/review-runtime')?.config.allowWrite).toBe(false)
+    // allowWrite now lives only in @dshrb/config's `base` layer; trust-policy
+    // and review-runtime read the resolved value through `ctx.dshrb`, so the
+    // two write-mode layers can no longer drift.
+    expect(byName.get('@dshrb/config')?.config.allowWrite).toBe(false)
   })
 
   it('exposes the diagnose intent switch, defaulting to enabled', () => {

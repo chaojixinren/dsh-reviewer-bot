@@ -29,7 +29,8 @@
     "@dshrb/forge": "workspace:*",
     "@dshrb/trust-policy": "workspace:*",
     "@dshrb/rule-registry": "workspace:*",
-    "@dshrb/tool-review": "workspace:*"
+    "@dshrb/tool-review": "workspace:*",
+    "@dshrb/config": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

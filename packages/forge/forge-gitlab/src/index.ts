@@ -64,6 +64,12 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 export interface GitLabDeps {
   readonly fetch: FetchLike
+  /**
+   * Resolves the private token on each request. Defaults to `config.token`;
+   * the bundle wires this to the shared `ctx.dshrb` config so a token edited
+   * in the Web UI takes effect without a restart.
+   */
+  readonly getToken?: () => string
 }
 
 /** Thrown for any non-2xx REST response. Never includes the token. */
@@ -461,6 +467,7 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
     throw new TypeError('gitlab: baseUrl must be an http(s) URL')
   }
   const { token } = config
+  const getToken = deps.getToken ?? (() => token)
 
   async function request(method: string, path: string, extra?: {
     body?: unknown
@@ -468,7 +475,7 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
   }): Promise<Response> {
     const headers: Record<string, string> = {
       // The credential is attached here and nowhere else in the process.
-      'PRIVATE-TOKEN': token,
+      'PRIVATE-TOKEN': getToken(),
       accept: extra?.accept ?? 'application/json',
       'user-agent': 'dsh-reviewer-bot',
     }
@@ -914,6 +921,12 @@ export function createGitLabGateway(config: Config, deps: GitLabDeps): GitLabGat
  * plugin's fiber, so unloading the plugin unregisters the gateway.
  */
 export function apply(ctx: Context, config: Config): void {
-  const gateway = createGitLabGateway(config, { fetch: globalThis.fetch })
+  const dshrb = ctx.get('dshrb')
+  const gateway = createGitLabGateway(config, {
+    fetch: globalThis.fetch,
+    // Shared config first (Web UI + env fallback), then this plugin's own
+    // config for standalone deployments without the bundle.
+    getToken: () => (dshrb === undefined ? config.token : dshrb.get().gitlabToken || config.token),
+  })
   ctx.effect(() => ctx.forges.register(gateway))
 }

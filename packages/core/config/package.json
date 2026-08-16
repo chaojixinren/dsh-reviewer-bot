@@ -1,13 +1,13 @@
 {
-  "name": "@dshrb/trust-policy",
+  "name": "@dshrb/config",
   "version": "0.1.1",
   "type": "module",
-  "description": "Actor permission to TrustLevel resolution and tool execution gating.",
+  "description": "Shared dshrb runtime configuration owning the dshrb settings namespace.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
-    "directory": "packages/core/trust-policy"
+    "directory": "packages/core/config"
   },
   "publishConfig": {
     "access": "public"
@@ -24,20 +24,14 @@
     "lib"
   ],
   "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.1",
-    "@dshrb/review-core": "workspace:*",
-    "@dshrb/forge": "workspace:*",
-    "@dshrb/config": "workspace:*"
+    "@deepseek-ai/schemastery": "3.18.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6"
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
-    "@dshrb/tool-review": "workspace:*"
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6"
   }
 }

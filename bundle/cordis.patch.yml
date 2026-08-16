@@ -6,10 +6,29 @@
 # Layer order: bundle layers first, then the user's own profile patch — so a
 # user override in their profile always wins. One exception by design:
 # `allowWrite` must not be raisable from a repository-controlled layer (the
-# `.dshrb.yml` / comment layers). The bundle sets the fail-closed default here.
+# `.dshrb.yml` / comment layers). The bundle sets the fail-closed default here
+# (in @dshrb/config); only the Web UI settings document may raise it.
 # See docs/05-plugin-composition.md.
 
 - insert:
+    # Shared runtime configuration. Owns the `dshrb` settings namespace, so
+    # the Web UI edits GitHub / GitLab tokens and the write toggle, and every
+    # other dshrb plugin reads the resolved value through `ctx.dshrb`.
+    #
+    # These config values become the settings namespace's `base` layer (the
+    # env fallback); the Web UI document overrides them.
+    - id: dshrb-config
+      name: '@dshrb/config'
+      config:
+        # DSH patch config does NOT expand bare `$VAR`. Use `!!js` so the value
+        # is evaluated against the loader scope (`process` / `ctx` in scope).
+        githubToken: !!js process.env.FORGE_TOKEN
+        gitlabToken: !!js process.env.FORGE_GITLAB_TOKEN
+        # Write mode stays off by default: a one-command install must not hand
+        # write permission to the model. Raise it only from the Web UI settings
+        # (the user document layer).
+        allowWrite: false
+
     # Rule registry must load before packs that inject it; Cordis handles the
     # ordering through reactive coeffects, so this is for human readability.
     - id: dshrb-rule-registry
@@ -20,31 +39,22 @@
     - id: dshrb-rules-baseline
       name: '@dshrb/rules-baseline'
 
-    - id: dshrb-trust-policy
-      name: '@dshrb/trust-policy'
-      config:
-        # Write mode stays off by default: a one-command install must not hand
-        # write permission to the model. Raise it only from a layer the repo
-        # maintainer controls (Action inputs / the user's own profile patch).
-        allowWrite: false
-
     # Forge registry must provide `forges` before any provider injects it.
     - id: dshrb-forge
       name: '@dshrb/forge'
 
+    # Token comes from the shared `dshrb` config (Web UI + FORGE_TOKEN env
+    # fallback); no per-provider token here.
     - id: dshrb-forge-github
       name: '@dshrb/forge-github'
-      config:
-        # DSH patch config does NOT expand bare `$VAR`. Use `!!js` so the value
-        # is evaluated against the loader scope (`process` / `ctx` in scope).
-        token: !!js process.env.FORGE_TOKEN
 
+    # GitLab token is sent as the `PRIVATE-TOKEN` header; it lives beside the
+    # GitHub token in the shared `dshrb` config.
     - id: dshrb-forge-gitlab
       name: '@dshrb/forge-gitlab'
-      config:
-        # GitLab token is sent as the `PRIVATE-TOKEN` header; keep it in its own
-        # env var so it cannot be confused with a GitHub token.
-        token: !!js process.env.FORGE_GITLAB_TOKEN
+
+    - id: dshrb-trust-policy
+      name: '@dshrb/trust-policy'
 
     - id: dshrb-tool-review
       name: '@dshrb/tool-review'
@@ -56,9 +66,6 @@
       name: '@dshrb/review-runtime'
       config:
         timeoutMinutes: 25
-        # Mirrors trust-policy's `allowWrite` so the two never drift; both are
-        # set from the same maintainer-held layer.
-        allowWrite: false
         # Read-only diagnostic intent: reads CI failure logs and replies with a
         # root-cause finding. Requires `trusted-read`, never `allow-write`. Set
         # false to disable the auto-diagnose on `check-failed` events and the

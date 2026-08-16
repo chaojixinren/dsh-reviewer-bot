@@ -42,6 +42,8 @@ const UPSTREAM = {
   'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy', 'dsh-subagent'],
   // progress subscribes to `session/event`, owned by dsh-session.
   'progress': ['dsh-session'],
+  // config owns the `dshrb` settings namespace through dsh-settings.
+  'config': ['dsh-settings'],
 }
 
 /**
@@ -88,13 +90,14 @@ const RUNTIME_DSH_DEPS = {
 /** dir, package name, description, workspace deps (short names) */
 const PACKAGES = [
   ['core/review-core', 'review-core', 'Domain types and invariants for review requests, findings, and verdicts.', []],
+  ['core/config', 'config', 'Shared dshrb runtime configuration owning the dshrb settings namespace.', []],
   ['core/forge', 'forge', 'ForgeGateway capability interfaces and the provider registry.', ['review-core']],
-  ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core', 'forge']],
+  ['core/trust-policy', 'trust-policy', 'Actor permission to TrustLevel resolution and tool execution gating.', ['review-core', 'forge', 'config']],
   ['core/rule-registry', 'rule-registry', 'Declarative review rule pack registry with glob matching.', ['review-core']],
   ['core/progress', 'progress', 'Sticky progress comment lifecycle reporter.', ['review-core', 'forge']],
-  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'tool-review']],
-  ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge']],
-  ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge']],
+  ['core/review-runtime', 'review-runtime', 'The eight-stage review pipeline orchestrator.', ['review-core', 'forge', 'trust-policy', 'rule-registry', 'tool-review', 'config']],
+  ['forge/forge-github', 'forge-github', 'GitHub ForgeGateway provider.', ['review-core', 'forge', 'config']],
+  ['forge/forge-gitlab', 'forge-gitlab', 'GitLab ForgeGateway provider.', ['review-core', 'forge', 'config']],
   ['forge/forge-local', 'forge-local', 'Local git ForgeGateway provider for offline dry-run.', ['review-core', 'forge']],
   ['tools/tool-review', 'tool-review', 'Model-facing review tools registered on ctx.tools.', ['review-core', 'rule-registry']],
   ['rules/rules-baseline', 'rules-baseline', 'Baseline review rule pack: correctness, security, maintainability.', ['review-core', 'rule-registry']],
@@ -118,6 +121,7 @@ const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
  */
 const PUBLISHABLE = new Set([
   'review-core',
+  'config',
   'forge',
   'trust-policy',
   'rule-registry',

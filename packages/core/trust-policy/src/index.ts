@@ -575,7 +575,11 @@ export function createTrustPolicy(config: Config): TrustPolicy {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const policy = createTrustPolicy(config)
+  const dshrb = ctx.get('dshrb')
+  const policy = new TrustPolicyState(
+    dshrb === undefined ? config.allowWrite : dshrb.get().allowWrite,
+    config.protectedPaths,
+  )
   // Fiber-owned: the service unregisters when this plugin's fiber unloads.
   ctx.provide('trustPolicy', policy)
 
