@@ -2208,13 +2208,14 @@ describe('isSafeGlobPattern', () => {
 })
 
 describe('fetchNeighborContents', () => {
-  // Only `src/index.ts` is changed; `src/a.ts` (forward import) and `src/b.ts`
-  // (reverse importer) are *unchanged* neighbors the enrichment should fetch.
-  // Files already in the diff are intentionally excluded — the model already
-  // has their content, so the budget is spent only on what it cannot see.
+  // Only `src/index.ts` is changed. `src/a.ts` is a forward import (the change
+  // now depends on it) and `src/b.ts` is a reverse importer (it depends on the
+  // change) — both are *unchanged* neighbors the enrichment should fetch. Files
+  // already in the diff are intentionally excluded — the model already has
+  // their content, so the budget is spent only on what it cannot see.
   const imports = new Map<string, readonly string[]>([
-    ['src/index.ts', ['./a']],
-    ['src/b.ts', ['./index']],
+    ['src/index.ts', ['./a.ts']],
+    ['src/b.ts', ['./index.ts']],
   ])
   const diff: UnifiedDiff = {
     files: [
