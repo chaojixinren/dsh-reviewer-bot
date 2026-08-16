@@ -33,6 +33,7 @@ import llm from '@deepseek-ai/dsh-llm'
 import * as llmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
 import credentialsLocal from '@deepseek-ai/dsh-credentials-local'
 import settingsFile from '@deepseek-ai/dsh-settings-file'
+import agentLoop from '@deepseek-ai/dsh-agent-loop'
 import { UnavailableSandboxProvider } from './unavailable-sandbox.js'
 
 // @dshrb plugin chain, in the layer order documented by bundle/cordis.patch.yml.
@@ -139,6 +140,10 @@ export async function bootReviewRuntime(config: RuntimeBootstrapConfig): Promise
   await ctx.plugin(llmDeepseek)
   await ctx.plugin(credentialsLocal)
   await ctx.plugin(settingsFile)
+  // Registers the concrete agent factory (`ctx.agents.setFactory`). Without it
+  // `ctx.agents.create()` in review-runtime's `createRunAgent` fails with
+  // "no agent factory registered (load an agent-loop plugin)".
+  await ctx.plugin(agentLoop)
 
   // --- @dshrb plugin chain (bundle/cordis.patch.yml layer order) -----------
   await ctx.plugin(ruleRegistry, { disabled: [...(config.disabledRules ?? [])], minSeverity: config.minSeverity ?? 'minor' })

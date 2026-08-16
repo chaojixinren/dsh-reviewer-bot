@@ -2613,7 +2613,11 @@ export function createRunAgent(ctx: Context, services: AgentLoopServices): Stage
   return async (bounded, signal): Promise<AgentOutput> => {
     const proposals: RawProposal[] = []
     const patches: RawPatch[] = []
-    const session = ctx.sessions.create()
+    // `sessions.create()` enters+announces the session immediately, but the
+    // agent-loop's factory owns that lifecycle (prepare → enter → announce), so
+    // a pre-entered id makes its own prepare() throw "session already exists".
+    // `prepare()` only mints a detached id without registering it.
+    const session = ctx.sessions.prepare()
     const diagnose = bounded.request.intent === 'diagnose'
 
     const handle = await ctx.agents.create({
@@ -2746,7 +2750,7 @@ function createShardRunner(ctx: Context): NonNullable<StageDeps['runShard']> {
     if (provider === undefined) {
       throw new Error('shard fan-out requires a registered ctx.subagents provider')
     }
-    const session = ctx.sessions.create()
+    const session = ctx.sessions.prepare()
     const handle = await ctx.agents.create({ sessionId: session.id })
     try {
       const [shard] = bounded.shards
