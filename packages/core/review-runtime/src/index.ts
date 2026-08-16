@@ -1116,9 +1116,9 @@ export function applySeverityOverrides(
  */
 export function clusterWithinShard(
   findings: readonly Finding[], window: number,
-): { findings: readonly Finding[]; merged: readonly MergedFinding[] } {
+): { findings: readonly Finding[] } {
   if (window <= 0 || findings.length === 0) {
-    return { findings: [...findings], merged: [] }
+    return { findings: [...findings] }
   }
   const groups: Array<{ rep: Finding; members: number }> = []
   for (const finding of findings) {
@@ -1137,19 +1137,10 @@ export function clusterWithinShard(
     }
   }
   const result: Finding[] = []
-  const merged: MergedFinding[] = []
   for (const group of groups) {
     result.push(group.rep)
-    if (group.members > 1) {
-      merged.push({
-        key: findingDedupeKey(group.rep),
-        title: group.rep.title,
-        shardHits: group.members,
-        severity: group.rep.severity,
-      })
-    }
   }
-  return { findings: result, merged }
+  return { findings: result }
 }
 
 function sameRuleAndPath(a: Finding, b: Finding): boolean {
@@ -2440,8 +2431,18 @@ async function runMemoryCommand(
     : wildcard === 'rule'
       ? `all findings of rule \`${parsed.ruleId}\``
       : `all findings matching glob \`${parsed.pathGlob}\`${parsed.ruleId === '' ? '' : ` of rule \`${parsed.ruleId}\``}`
+  // The forget instruction must match what `parseMemoryReference` actually
+  // accepts: exact exceptions use `@dsr forget <json>`, while wildcard
+  // exceptions (whose synthetic key has a `*` path segment that fails
+  // `isSafeRelativePath`) must use the dedicated `forget-rule` / `forget-glob`
+  // forms — advertising a bare `@dsr forget <key>` for them would never parse.
+  const forgetCommand = wildcard === undefined
+    ? `@dsr forget ${key}`
+    : wildcard === 'rule'
+      ? `@dsr forget-rule ${parsed.ruleId}`
+      : `@dsr forget-glob ${parsed.pathGlob}${parsed.ruleId === '' ? '' : ` ${parsed.ruleId}`}`
   const summary = intent === 'accept'
-    ? `## DSH Reviewer Bot\n\nAccepted ${subject} as a resolved exception${parsed.reason === '' ? '' : ` — ${parsed.reason}`}. It will be suppressed on future change requests until \`@dsr forget ${key}\`.`
+    ? `## DSH Reviewer Bot\n\nAccepted ${subject} as a resolved exception${parsed.reason === '' ? '' : ` — ${parsed.reason}`}. It will be suppressed on future change requests until \`${forgetCommand}\`.`
     : `## DSH Reviewer Bot\n\nForgot the resolved exception ${subject}. It will be reported again on future change requests.`
 
   const sink = deps.forges.require<CommentSink>(request.event.forgeId, ['comment-sink'])
@@ -2576,15 +2577,20 @@ export async function runReview(
       : undefined
     // Neighbor enrichment (RFC C1): pull in caller/callee file contents so the
     // model can reason about signature and interface changes. Gated by the
-    // `neighborBytes` budget and an available import graph; both default off,
-    // so the context and the token cost are unchanged unless explicitly enabled.
+    // `neighborBytes` budget, an available import graph, AND whether any rule
+    // actually applies — so a docs/SVG/image-only PR (no applicable rule) never
+    // spends the opt-in budget fetching context the model will never see. All
+    // gates default off, so the default behavior is unchanged.
     let neighbors: ReadonlyMap<string, string> | undefined
-    if (config.neighborBytes > 0 && imports !== undefined && imports.size > 0) {
+    let bounded = intent === 'diagnose'
+      ? await assembleDiagnoseContext(request, diff, deps, imports, undefined)
+      : assembleContext(request, diff, deps, imports, undefined)
+    if (bounded.rules.length > 0 && config.neighborBytes > 0 && imports !== undefined && imports.size > 0) {
       neighbors = await fetchNeighborContents(event.forgeId, deps.forges, event.target, diff, imports, config.neighborBytes)
+      bounded = intent === 'diagnose'
+        ? await assembleDiagnoseContext(request, diff, deps, imports, neighbors)
+        : assembleContext(request, diff, deps, imports, neighbors)
     }
-    const bounded = intent === 'diagnose'
-      ? await assembleDiagnoseContext(request, diff, deps, imports, neighbors)
-      : assembleContext(request, diff, deps, imports, neighbors)
 
     // No rule applies to any changed file (a docs/SVG/image-only PR): there is
     // nothing the agent could anchor or cite, so skip the model entirely. This
@@ -3166,7 +3172,12 @@ export async function fetchNeighborContents(
   for (const file of changed) {
     for (const spec of imports.get(file) ?? []) {
       const resolved = resolveLocalImport(file, spec)
-      if (resolved !== undefined && changed.has(resolved) && resolved !== file) {
+      // Inject the callee even when it is NOT in the diff — an unchanged module
+      // whose signature/interface the change now depends on is exactly what the
+      // model cannot otherwise see. Skip self and files already in the diff to
+      // avoid re-fetching content the model already has. The byte budget bounds
+      // the total cost.
+      if (resolved !== undefined && resolved !== file && !changed.has(resolved)) {
         wanted.add(resolved)
       }
     }
