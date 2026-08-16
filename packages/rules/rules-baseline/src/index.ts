@@ -56,7 +56,7 @@ const GENERATED_GLOBS: readonly string[] = [
  */
 export const baselinePack: RulePack = {
   id: name,
-  version: '0.1.0',
+  version: '0.1.1',
   title: 'DSH Reviewer baseline rules',
   rules: [
     // -------------------------------------------------------------------

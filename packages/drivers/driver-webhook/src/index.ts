@@ -28,7 +28,7 @@ export const name = 'dshrb-driver-webhook'
 export const inject = ['reviewRuntime']
 
 /** Version echoed by the unauthenticated health endpoint — and nothing else. */
-export const DAEMON_VERSION = '0.1.0'
+export const DAEMON_VERSION = '0.1.1'
 
 export interface Config {
   host: string

@@ -491,7 +491,7 @@ describe('createHandler', () => {
     expect(response.status).toBe(200)
     const body = JSON.parse(response.body ?? '{}') as Record<string, unknown>
     expect(body.ok).toBe(true)
-    expect(body.version).toBe('0.1.0')
+    expect(body.version).toBe('0.1.1')
     expect(response.body).not.toMatch(/queue|repo|secret|depth/)
   })
 

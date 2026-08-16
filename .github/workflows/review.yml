@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 1
 
       - id: review
-        uses: chaojixinren/dsh-reviewer-bot@v0.1.0
+        uses: chaojixinren/dsh-reviewer-bot@v0.1.1
         with:
           deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
           # forge-github only mounts when a token is supplied; without it the
