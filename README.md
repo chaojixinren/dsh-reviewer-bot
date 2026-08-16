@@ -57,7 +57,7 @@
 | 方式 | 接入入口 | 适合 |
 |---|---|---|
 | DSH 生态用户 | `dsh plugin --profile <name> add @dshrb/bundle` | 装进既有 profile，与其他插件共享 `ctx` |
-| GitHub Action | workflow 里 `uses: dshrb/reviewer-action@v0.1.0` | 尝鲜、小仓库 |
+| GitHub Action | workflow 里 `uses: dshrb/reviewer-action@v0.1.1` | 尝鲜、小仓库 |
 | Daemon | 常驻 webhook 服务 | 大仓库、多仓库、私有部署 |
 
 ```bash

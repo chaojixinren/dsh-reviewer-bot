@@ -8,7 +8,7 @@
  *      by NAME; those names must resolve to loadable Cordis plugins, and the
  *      full chain must boot in a real Cordis container (offline, no credential).
  *
- *   2. GitHub Action  `uses: dshrb/reviewer-action@v0.1.0`
+ *   2. GitHub Action  `uses: dshrb/reviewer-action@v0.1.1`
  *      `action.yml` + `examples/review.yml` parse as valid YAML and agree with
  *      each other, and the bundled `dist/index.js` runs one full event to a
  *      terminal `result-json` (input read → runtime boot → pipeline → outputs).
@@ -152,7 +152,7 @@ function buildReleaseIfMissing() {
 }
 
 async function verifyActionMode() {
-  console.log('\n[2/3] GitHub Action — `uses: dshrb/reviewer-action@v0.1.0`')
+  console.log('\n[2/3] GitHub Action — `uses: dshrb/reviewer-action@v0.1.1`')
 
   const YAML = await loadYaml()
   const actionText = readFileSync(join(root, 'action.yml'), 'utf8')
@@ -168,9 +168,9 @@ async function verifyActionMode() {
     check(action.runs?.using === 'node24', 'action.yml declares the node24 runner', action.runs?.using)
     check(action.runs?.main === 'dist/index.js', 'action.yml main points at the built entrypoint', action.runs?.main)
     check(action.inputs?.['deepseek-api-key']?.required === true, 'action.yml requires deepseek-api-key')
-    check(review.jobs?.review?.steps?.some((step) => step.uses === 'dshrb/reviewer-action@v0.1.0'), 'examples/review.yml uses dshrb/reviewer-action@v0.1.0')
-    check(commands.jobs?.command?.steps?.some((step) => step.uses === 'dshrb/reviewer-action@v0.1.0'), 'examples/commands.yml uses dshrb/reviewer-action@v0.1.0')
-    const reviewInputs = review.jobs.review.steps.find((step) => step.uses === 'dshrb/reviewer-action@v0.1.0')?.with ?? {}
+    check(review.jobs?.review?.steps?.some((step) => step.uses === 'dshrb/reviewer-action@v0.1.1'), 'examples/review.yml uses dshrb/reviewer-action@v0.1.1')
+    check(commands.jobs?.command?.steps?.some((step) => step.uses === 'dshrb/reviewer-action@v0.1.1'), 'examples/commands.yml uses dshrb/reviewer-action@v0.1.1')
+    const reviewInputs = review.jobs.review.steps.find((step) => step.uses === 'dshrb/reviewer-action@v0.1.1')?.with ?? {}
     check('deepseek-api-key' in reviewInputs, 'examples/review.yml passes deepseek-api-key to the action')
   }
 
@@ -269,7 +269,7 @@ async function verifyDaemonMode() {
     check(health.status === 200, '/healthz returns 200', `got ${health.status}`)
     const healthBody = JSON.parse(health.body)
     check(healthBody.ok === true, '/healthz reports ok')
-    check(healthBody.version === '0.1.0', '/healthz reports the daemon version', healthBody.version)
+    check(healthBody.version === '0.1.1', '/healthz reports the daemon version', healthBody.version)
 
     const badSig = await call('/webhook', {
       method: 'POST',

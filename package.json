@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/root",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "DSH Reviewer Bot — native DeepSeek Harness plugin suite for code review across forges",
