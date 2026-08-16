@@ -12,6 +12,12 @@
   <img src="https://img.shields.io/badge/Node-22.19%2B%20%7C%2024%2B-339933" alt="Node 22.19+ | 24+" />
   <img src="https://img.shields.io/badge/TypeScript-5.9.2-3178c6" alt="TypeScript 5.9.2" />
   <img src="https://img.shields.io/badge/pnpm-11.7.0-f69220" alt="pnpm 11.7.0" />
+  <a href="https://dshfind.com/zh/plugins/chaojixinren/dsh-reviewer-bot?ref=badge">
+    <img
+      src="https://dshfind.com/api/badge/chaojixinren/dsh-reviewer-bot?lang=zh"
+      alt="dshfind"
+    />
+  </a>
 </p>
 <div align="center">
   <a href="https://dshfind.com/zh/plugins/chaojixinren/dsh-reviewer-bot?ref=badge">
