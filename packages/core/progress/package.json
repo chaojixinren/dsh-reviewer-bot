@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/progress",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Sticky progress comment lifecycle reporter.",
   "license": "MIT",
@@ -21,8 +21,7 @@
     }
   },
   "files": [
-    "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib"
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.1",

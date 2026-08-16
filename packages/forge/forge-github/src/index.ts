@@ -52,7 +52,7 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  token: Schema.string().required(),
+  token: Schema.string().default(''),
   baseUrl: Schema.string().default('https://api.github.com'),
 })
 

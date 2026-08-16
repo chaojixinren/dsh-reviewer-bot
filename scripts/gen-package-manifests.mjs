@@ -25,7 +25,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const VERSION = '0.1.0'
+const VERSION = '0.1.1'
 const CORDIS = '4.0.1'
 const SCHEMASTERY = '3.18.1'
 /** All @deepseek-ai/dsh-* packages ship in lockstep with @deepseek-ai/dsh. */
@@ -73,6 +73,7 @@ const RUNTIME_DSH_DEPS = {
     'dsh-typert-registry',
     'dsh-session',
     'dsh-agent',
+    'dsh-agent-loop',
     'dsh-session-projection',
     'dsh-subagent',
     'dsh-subagent-spawn-in-process',
@@ -179,7 +180,7 @@ for (const [dir, short, description, deps] of PACKAGES) {
         default: './lib/index.js',
       },
     },
-    files: ['lib/index.js', 'lib/types/**/*.d.ts'],
+    files: ['lib'],
     dependencies,
     peerDependencies,
     devDependencies,
