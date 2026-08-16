@@ -19,16 +19,16 @@ describe('readInputs', () => {
 
   it('parses every input from the INPUT_* environment', () => {
     const inputs = readInputs({
-      INPUT_DEEPSEEK_API_KEY: 'sk-123',
-      INPUT_GITHUB_TOKEN: 'gh-token',
-      INPUT_ALLOW_WRITE: 'true',
-      INPUT_RUN_TESTS: 'false',
-      INPUT_TEST_COMMANDS: '[["echo","hi"]]',
-      INPUT_CONTAINER_IMAGE: 'sha256:abc',
-      INPUT_PROGRESS_COMMENT: 'false',
-      INPUT_TIMEOUT_MINUTES: '30',
-      INPUT_MIN_SEVERITY: 'major',
-      INPUT_RULE_PACKS: '["@dshrb/rules-baseline"]',
+      'INPUT_DEEPSEEK-API-KEY': 'sk-123',
+      'INPUT_GITHUB-TOKEN': 'gh-token',
+      'INPUT_ALLOW-WRITE': 'true',
+      'INPUT_RUN-TESTS': 'false',
+      'INPUT_TEST-COMMANDS': '[["echo","hi"]]',
+      'INPUT_CONTAINER-IMAGE': 'sha256:abc',
+      'INPUT_PROGRESS-COMMENT': 'false',
+      'INPUT_TIMEOUT-MINUTES': '30',
+      'INPUT_MIN-SEVERITY': 'major',
+      'INPUT_RULE-PACKS': '["@dshrb/rules-baseline"]',
     })
     expect(inputs['deepseek-api-key']).toBe('sk-123')
     expect(inputs['github-token']).toBe('gh-token')
@@ -43,29 +43,29 @@ describe('readInputs', () => {
   })
 
   it('omits unset optional inputs', () => {
-    const inputs = readInputs({ INPUT_DEEPSEEK_API_KEY: 'sk-123' })
+    const inputs = readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'sk-123' })
     expect(inputs['github-token']).toBeUndefined()
     expect(inputs['test-commands']).toBeUndefined()
     expect(inputs['rule-packs']).toBeUndefined()
   })
 
   it('fails loudly on malformed test-commands JSON', () => {
-    expect(() => readInputs({ INPUT_DEEPSEEK_API_KEY: 'k', INPUT_TEST_COMMANDS: 'not json' }))
+    expect(() => readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'k', 'INPUT_TEST-COMMANDS': 'not json' }))
       .toThrow(/test-commands/)
   })
 
   it('fails loudly when test-commands is not an array of argv arrays', () => {
-    expect(() => readInputs({ INPUT_DEEPSEEK_API_KEY: 'k', INPUT_TEST_COMMANDS: '["echo"]' }))
+    expect(() => readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'k', 'INPUT_TEST-COMMANDS': '["echo"]' }))
       .toThrow(/array of strings/)
   })
 
   it('fails loudly on malformed rule-packs JSON', () => {
-    expect(() => readInputs({ INPUT_DEEPSEEK_API_KEY: 'k', INPUT_RULE_PACKS: '{nope}' }))
+    expect(() => readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'k', 'INPUT_RULE-PACKS': '{nope}' }))
       .toThrow(/rule-packs/)
   })
 
   it('fails loudly when rule-packs is not an array of strings', () => {
-    expect(() => readInputs({ INPUT_DEEPSEEK_API_KEY: 'k', INPUT_RULE_PACKS: '[1,2]' }))
+    expect(() => readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'k', 'INPUT_RULE-PACKS': '[1,2]' }))
       .toThrow(/package names/)
   })
 })

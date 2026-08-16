@@ -91,23 +91,34 @@ function parseStringArray(raw: string): readonly string[] {
  * `test-commands` and `rule-packs` parse as JSON arrays and fail loudly on
  * malformed input, so a typo in a workflow never half-runs the review.
  */
+/**
+ * GitHub maps an action input name to `INPUT_<NAME>` with the name uppercased
+ * and hyphens **preserved** (`deepseek-api-key` → `INPUT_DEEPSEEK-API-KEY`),
+ * not converted to underscores — see actions/runner#2283 / actions/toolkit#629.
+ * Reading the underscore form silently drops every kebab-case input, so mirror
+ * the toolkit rule exactly.
+ */
+function inputEnv(name: string): string {
+  return `INPUT_${name.toUpperCase()}`
+}
+
 export function readInputs(env: NodeJS.ProcessEnv): ActionInputs {
   const inputs: Record<string, unknown> = {
-    'deepseek-api-key': requireInput(env, 'INPUT_DEEPSEEK_API_KEY', 'deepseek-api-key'),
+    'deepseek-api-key': requireInput(env, inputEnv('deepseek-api-key'), 'deepseek-api-key'),
   }
-  optionalInput(env, 'INPUT_GITHUB_TOKEN', 'github-token', inputs)
-  optionalInput(env, 'INPUT_ALLOW_WRITE', 'allow-write', inputs)
-  optionalInput(env, 'INPUT_RUN_TESTS', 'run-tests', inputs)
-  optionalInput(env, 'INPUT_CONTAINER_IMAGE', 'container-image', inputs)
-  optionalInput(env, 'INPUT_PROGRESS_COMMENT', 'progress-comment', inputs)
-  optionalInput(env, 'INPUT_TIMEOUT_MINUTES', 'timeout-minutes', inputs)
-  optionalInput(env, 'INPUT_MIN_SEVERITY', 'min-severity', inputs)
+  optionalInput(env, inputEnv('github-token'), 'github-token', inputs)
+  optionalInput(env, inputEnv('allow-write'), 'allow-write', inputs)
+  optionalInput(env, inputEnv('run-tests'), 'run-tests', inputs)
+  optionalInput(env, inputEnv('container-image'), 'container-image', inputs)
+  optionalInput(env, inputEnv('progress-comment'), 'progress-comment', inputs)
+  optionalInput(env, inputEnv('timeout-minutes'), 'timeout-minutes', inputs)
+  optionalInput(env, inputEnv('min-severity'), 'min-severity', inputs)
 
-  const testCommands = env.INPUT_TEST_COMMANDS
+  const testCommands = env[inputEnv('test-commands')]
   if (testCommands !== undefined && testCommands !== '') {
     inputs['test-commands'] = parseArgvArray(testCommands)
   }
-  const rulePacks = env.INPUT_RULE_PACKS
+  const rulePacks = env[inputEnv('rule-packs')]
   if (rulePacks !== undefined && rulePacks !== '') {
     inputs['rule-packs'] = parseStringArray(rulePacks)
   }
