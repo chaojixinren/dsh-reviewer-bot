@@ -534,6 +534,10 @@ export function createQueue(options: QueueOptions): Queue {
         if (index !== -1) {
           const replaced = list[index]!
           list[index] = task
+          // The superseded delivery id must not re-execute if the forge redelivers
+          // it: without this, a redelivery of the coalesced-away id is seen as a
+          // brand-new event (and would even re-coalesce over the newer task).
+          completed.add(replaced.key)
           metrics?.inc('coalesced')
           callbacks.onCoalesced?.(task.repo, replaced)
           return 'accepted'

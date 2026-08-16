@@ -263,6 +263,26 @@ describe('createQueue', () => {
     expect(started).toEqual(['a1'])
   })
 
+  it('dedupes a redelivery of a delivery id that was coalesced away', () => {
+    const started: string[] = []
+    const queue = createQueue({
+      maxConcurrentRepos: 1,
+      maxQueuePerRepo: 16,
+      run: async (task) => {
+        started.push(String(task.raw))
+        await new Promise<void>(() => {})
+      },
+    })
+    queue.enqueue({ key: 'g:r:d1', repo: 'r', raw: 'a1', coalesceKey: 'g:r:7' })
+    queue.enqueue({ key: 'g:r:d2', repo: 'r', raw: 'a2', coalesceKey: 'g:r:7' })
+    queue.enqueue({ key: 'g:r:d3', repo: 'r', raw: 'a3', coalesceKey: 'g:r:7' })
+    // d2 was superseded; a forge redelivery of d2 must be a no-op, not re-insert
+    // the stale event over the newer d3.
+    expect(queue.enqueue({ key: 'g:r:d2', repo: 'r', raw: 'a2-again', coalesceKey: 'g:r:7' })).toBe('duplicate')
+    expect(queue.depth()).toBe(1)
+    expect(started).toEqual(['a1'])
+  })
+
   it('drains queued and in-flight tasks, then rejects new work', async () => {
     const started: string[] = []
     const gates = new Map<string, () => void>()
