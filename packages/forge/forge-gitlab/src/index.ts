@@ -925,8 +925,10 @@ export function apply(ctx: Context, config: Config): void {
   const gateway = createGitLabGateway(config, {
     fetch: globalThis.fetch,
     // Shared config first (Web UI + env fallback), then this plugin's own
-    // config for standalone deployments without the bundle.
-    getToken: () => (dshrb === undefined ? config.token : dshrb.get().gitlabToken || config.token),
+    // config for standalone deployments without the bundle. The shared
+    // namespace is authoritative when present (see forge-github), so a Web UI
+    // "Clear" is never masked by a legacy `config.token`.
+    getToken: () => (dshrb === undefined ? config.token : dshrb.get().gitlabToken),
   })
   ctx.effect(() => ctx.forges.register(gateway))
 }

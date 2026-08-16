@@ -101,6 +101,16 @@ window.__ModuleLoader__.load({
         return function () { cancelled = true }
       }, [getConfig])
 
+      function refreshBadges() {
+        return getConfig().then(function (config) {
+          setGithubConfigured(config.githubTokenConfigured)
+          setGitlabConfigured(config.gitlabTokenConfigured)
+        }, function () {
+          // Best-effort re-read: the primary write result is already reflected
+          // in the message, and a failed badge refresh is not user-actionable.
+        })
+      }
+
       function onSave() {
         var patch = { allowWrite: allowWrite }
         if (githubToken !== '') patch.githubToken = githubToken
@@ -110,18 +120,12 @@ window.__ModuleLoader__.load({
         setConfig(patch).then(function () {
           setGithubToken('')
           setGitlabToken('')
-          setSaving(false)
           setMessageText('Saved')
-          // Re-read so the configured badges reflect what was just written.
-          return getConfig()
+          return refreshBadges()
         }, function (error) {
-          setSaving(false)
           setMessageText(String(error && error.message || error))
-        }).then(function (config) {
-          if (config) {
-            setGithubConfigured(config.githubTokenConfigured)
-            setGitlabConfigured(config.gitlabTokenConfigured)
-          }
+        }).then(function () {
+          setSaving(false)
         })
       }
 
@@ -131,17 +135,12 @@ window.__ModuleLoader__.load({
         setSaving(true)
         setMessageText('')
         setConfig(patch).then(function () {
-          setSaving(false)
           setMessageText('Cleared')
-          return getConfig()
+          return refreshBadges()
         }, function (error) {
-          setSaving(false)
           setMessageText(String(error && error.message || error))
-        }).then(function (config) {
-          if (config) {
-            setGithubConfigured(config.githubTokenConfigured)
-            setGitlabConfigured(config.gitlabTokenConfigured)
-          }
+        }).then(function () {
+          setSaving(false)
         })
       }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import type { Capabilities, ReviewIntent, TrustLevel } from '@dshrb/review-core'
 import type { ForgePermission } from '@dshrb/forge'
 import { TOOL_NAMES } from '@dshrb/tool-review'
@@ -6,6 +7,7 @@ import {
   GOVERNED_TOOLS,
   INTENT_MIN_TRUST,
   TOOL_REQUIREMENTS,
+  apply,
   capabilitiesFor,
   createTrustPolicy,
   decideToolCall,
@@ -18,7 +20,7 @@ import {
   visibleTools,
   writeRedLineViolation,
 } from '../src/index.ts'
-import type { ActorContext, Config, TrustInput, WriteRedLine } from '../src/index.ts'
+import type { ActorContext, Config, TrustInput, TrustPolicy, WriteRedLine } from '../src/index.ts'
 
 /**
  * Trust resolution is a security boundary, so these tests assert what is
@@ -632,6 +634,44 @@ describe('createTrustPolicy write context', () => {
     const before = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"1"}}'
     const after = '{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"2"}}'
     expect(policy.rejectWrite('package.json', '@@ -1 +1 @@\n', before, after)).toBeUndefined()
+  })
+})
+
+describe('apply (reactive allowWrite)', () => {
+  function mount(initialAllowWrite: boolean) {
+    const root = new Context()
+    const watchers: Array<(next: { allowWrite: boolean }) => void> = []
+    const state = { allowWrite: initialAllowWrite }
+    const dshrb = {
+      get: () => ({ ...state }),
+      watch: (cb: (next: { allowWrite: boolean }) => void) => {
+        watchers.push(cb)
+        return () => {}
+      },
+      update: async (patch: { allowWrite?: boolean }) => {
+        Object.assign(state, patch)
+        for (const cb of watchers) cb({ ...state })
+      },
+    }
+    root.provide('dshrb', dshrb)
+    // `apply` also registers a `ctx.tools.guard`; a no-op suffices for this test.
+    root.provide('tools', { guard: () => {}, restrict: () => () => {}, name: 'tools' })
+
+    apply(root, { allowWrite: initialAllowWrite, protectedPaths: [] })
+    const policy = root.get('trustPolicy') as TrustPolicy & { allowWrite: boolean }
+    return { root, dshrb, policy }
+  }
+
+  it('seeds allowWrite from the shared config', () => {
+    expect(mount(true).policy.allowWrite).toBe(true)
+    expect(mount(false).policy.allowWrite).toBe(false)
+  })
+
+  it('applies a Web UI toggle change without a restart', async () => {
+    const { dshrb, policy } = mount(false)
+    expect(policy.allowWrite).toBe(false)
+    await dshrb.update({ allowWrite: true })
+    expect(policy.allowWrite).toBe(true)
   })
 })
 

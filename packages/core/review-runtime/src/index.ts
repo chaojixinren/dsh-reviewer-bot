@@ -2862,8 +2862,12 @@ export function apply(ctx: Context, config: Config): void {
     forges: ctx.forges,
     now: () => Date.now(),
     // Shared config first (Web UI + env fallback), then this plugin's own
-    // config for standalone deployments without the bundle.
-    allowWrite: dshrb === undefined ? config.allowWrite : dshrb.get().allowWrite,
+    // config for standalone deployments without the bundle. Read lazily via a
+    // getter so a Web UI toggle change applies to the next review run without
+    // a profile restart.
+    get allowWrite() {
+      return dshrb === undefined ? config.allowWrite : dshrb.get().allowWrite
+    },
     minSeverity: config.minSeverity,
     shardBytes: config.shardBytes,
     parallelShards: config.parallelShards,

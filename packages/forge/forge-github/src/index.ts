@@ -898,8 +898,12 @@ export function apply(ctx: Context, config: Config): void {
   const gateway = createGitHubGateway(config, {
     fetch: globalThis.fetch,
     // Shared config first (Web UI + env fallback), then this plugin's own
-    // config for standalone deployments without the bundle.
-    getToken: () => (dshrb === undefined ? config.token : dshrb.get().githubToken || config.token),
+    // config for standalone deployments without the bundle. When the shared
+    // namespace is present it is authoritative: the `dshrb` base layer already
+    // carries the `FORGE_TOKEN` env fallback, so falling back to `config.token`
+    // here would make a Web UI "Clear" ineffective (the legacy token would
+    // resurface after the user cleared the settings document).
+    getToken: () => (dshrb === undefined ? config.token : dshrb.get().githubToken),
   })
   ctx.effect(() => ctx.forges.register(gateway))
 }
