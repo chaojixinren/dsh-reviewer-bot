@@ -3,8 +3,11 @@
  * Generates package.json + tsconfig.json for every workspace package.
  *
  * Manifest invariants follow the upstream DSH package checklist:
- * private, type module, main lib/index.js, types lib/types/index.d.ts,
+ * type module, main lib/index.js, types lib/types/index.d.ts,
  * cordis in BOTH peerDependencies and devDependencies at the same range.
+ *
+ * Only the `PUBLISHABLE` set below drops `private` and gains `license` /
+ * `repository` / `publishConfig`; everything else stays `private`.
  *
  * Upstream versions are pinned exactly, not ranged. DSH is a developer
  * preview that documents breaking changes between rc builds, so a range
@@ -36,7 +39,7 @@ const DSH = '0.1.0-rc.6'
 const UPSTREAM = {
   'trust-policy': ['dsh-tools', 'dsh-system-prompt'],
   'tool-review': ['dsh-tools', 'dsh-system-prompt'],
-  'review-runtime': ['dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy'],
+  'review-runtime': ['dsh-subagent', 'dsh-tools', 'dsh-system-prompt', 'dsh-llm', 'dsh-fs', 'dsh-sandbox', 'dsh-sandbox-policy'],
   // progress subscribes to `session/event`, owned by dsh-session.
   'progress': ['dsh-session'],
 }
@@ -70,6 +73,29 @@ const PACKAGES = [
 
 const dirOf = new Map(PACKAGES.map(([dir, short]) => [short, dir]))
 
+/**
+ * Packages published to npm. The set is exactly the transitive closure of
+ * `@dshrb/bundle`'s dependencies: `bundle/cordis.patch.yml` references these
+ * plugins by NAME, so they (plus `review-core`, the shared domain types every
+ * one of them imports at runtime) must exist on the registry for
+ * `dsh plugin add @dshrb/bundle` to resolve.
+ *
+ * Drivers, the local forge, and the signature probe stay `private` — they ship
+ * through the Action / Daemon / CLI deployment modes, not through the bundle.
+ */
+const PUBLISHABLE = new Set([
+  'review-core',
+  'forge',
+  'trust-policy',
+  'rule-registry',
+  'progress',
+  'review-runtime',
+  'forge-github',
+  'forge-gitlab',
+  'tool-review',
+  'rules-baseline',
+])
+
 for (const [dir, short, description, deps] of PACKAGES) {
   const pkgDir = join(root, 'packages', dir)
   mkdirSync(join(pkgDir, 'src'), { recursive: true })
@@ -94,9 +120,22 @@ for (const [dir, short, description, deps] of PACKAGES) {
   const pkg = {
     name: `@dshrb/${short}`,
     version: VERSION,
-    private: true,
+    ...(PUBLISHABLE.has(short)
+      ? {}
+      : { private: true }),
     type: 'module',
     description,
+    ...(PUBLISHABLE.has(short)
+      ? {
+          license: 'MIT',
+          repository: {
+            type: 'git',
+            url: 'git+https://github.com/chaojixinren/dsh-reviewer-bot.git',
+            directory: `packages/${dir}`,
+          },
+          publishConfig: { access: 'public' },
+        }
+      : {}),
     main: 'lib/index.js',
     types: 'lib/types/index.d.ts',
     exports: {

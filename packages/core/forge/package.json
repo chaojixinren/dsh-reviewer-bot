@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/forge",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "ForgeGateway capability interfaces and the provider registry.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/core/forge"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

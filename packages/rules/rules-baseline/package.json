@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/rules-baseline",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Baseline review rule pack: correctness, security, maintainability.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/rules/rules-baseline"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {

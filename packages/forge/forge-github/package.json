@@ -1,9 +1,17 @@
 {
   "name": "@dshrb/forge-github",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "GitHub ForgeGateway provider.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/forge/forge-github"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
