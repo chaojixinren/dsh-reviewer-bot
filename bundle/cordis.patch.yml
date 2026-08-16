@@ -39,6 +39,13 @@
         # is evaluated against the loader scope (`process` / `ctx` in scope).
         token: !!js process.env.FORGE_TOKEN
 
+    - id: dshrb-forge-gitlab
+      name: '@dshrb/forge-gitlab'
+      config:
+        # GitLab token is sent as the `PRIVATE-TOKEN` header; keep it in its own
+        # env var so it cannot be confused with a GitHub token.
+        token: !!js process.env.FORGE_GITLAB_TOKEN
+
     - id: dshrb-tool-review
       name: '@dshrb/tool-review'
 

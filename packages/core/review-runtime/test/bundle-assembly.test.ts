@@ -140,6 +140,7 @@ const EXPECTED_NAMES = [
   '@dshrb/trust-policy',
   '@dshrb/forge',
   '@dshrb/forge-github',
+  '@dshrb/forge-gitlab',
   '@dshrb/tool-review',
   '@dshrb/progress',
   '@dshrb/review-runtime',

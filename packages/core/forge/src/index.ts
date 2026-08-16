@@ -258,3 +258,12 @@ declare module '@deepseek-ai/cordis' {
 // (`ForgeGateway.id`, `resolve`, `require`), so a consumer cannot name them
 // without reaching past this package into review-core.
 export type { ChangeRequestId, ForgeId }
+
+// Shared provider conformance suite (docs/06-forge-abstraction.md:147). Value
+// re-export only; conformance.ts has no value imports from this module, so this
+// introduces no runtime cycle.
+export { runForgeConformance } from './conformance.js'
+export type {
+  ConformanceCapability, ConformanceCase, ConformanceFactory, ConformanceFactoryContext,
+  ConformanceGateway, ConformanceOptions, ConformanceScenario,
+} from './conformance.js'
