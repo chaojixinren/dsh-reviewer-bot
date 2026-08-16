@@ -33,34 +33,34 @@ importers:
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(c7c9175e2b8dc7442491218e1cdde236)
       '@dshrb/config':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/config
       '@dshrb/forge':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/forge
       '@dshrb/forge-github':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/forge/forge-github
       '@dshrb/forge-gitlab':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/forge/forge-gitlab
       '@dshrb/progress':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/progress
       '@dshrb/review-runtime':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/review-runtime
       '@dshrb/rule-registry':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/rule-registry
       '@dshrb/rules-baseline':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/rules/rules-baseline
       '@dshrb/tool-review':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/tools/tool-review
       '@dshrb/trust-policy':
-        specifier: workspace:0.1.1
+        specifier: workspace:0.1.2
         version: link:../packages/core/trust-policy
 
   packages/core/config:

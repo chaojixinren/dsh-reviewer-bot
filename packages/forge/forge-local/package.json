@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/forge-local",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Local git ForgeGateway provider for offline dry-run.",

@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/forge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "ForgeGateway capability interfaces and the provider registry.",
   "license": "MIT",
