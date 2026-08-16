@@ -145,6 +145,7 @@ export function buildResultJson(result: ReviewResult): Record<string, unknown> {
     findings: {
       items: result.findings,
       discarded: result.discarded,
+      suppressed: result.suppressed ?? [],
     },
     publication: result.publication ?? null,
     validation: write?.validation ?? null,
@@ -173,6 +174,7 @@ export function buildOutputs(result: ReviewResult): Record<string, string> {
     'review-summary': result.summary ?? '',
     'findings-count': String(result.verdict.findingsCount),
     'blockers-count': String(result.verdict.blockersCount),
+    'suppressed-count': String(result.suppressed?.length ?? 0),
     'branch-name': '',
     'pull-request-url': write?.pullRequestUrl ?? '',
     'commit-sha': write?.commitSha ?? '',

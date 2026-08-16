@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   commentId, commitSha, forgeId, requestId,
 } from '@dshrb/review-core'
-import type { ReviewResult } from '@dshrb/review-core'
+import type { ReviewResult, SuppressedFinding } from '@dshrb/review-core'
 import { buildOutputs, buildResultJson, readEventPayload, readInputs, writeOutputs } from '../src/index.ts'
 import { InputError } from '../src/index.ts'
 
@@ -169,6 +169,21 @@ describe('buildOutputs', () => {
     expect(envelope.policy).toEqual({ trustLevel: 'trusted-read', capabilities: null })
     expect(envelope.rules).toEqual([])
     expect(envelope.isolation).toBeNull()
+  })
+
+  it('maps suppressed findings onto suppressed-count and the findings envelope', () => {
+    const suppressed: readonly SuppressedFinding[] = [{
+      key: '["src/index.ts","","loose equality"]',
+      path: 'src/index.ts',
+      title: 'loose equality',
+      severity: 'major',
+      resolvedBy: 'bob',
+      reason: 'intentional',
+    }]
+    const outputs = buildOutputs(resultFixture({ suppressed }))
+    expect(outputs['suppressed-count']).toBe('1')
+    const envelope = buildResultJson(resultFixture({ suppressed }))
+    expect((envelope.findings as { suppressed: unknown }).suppressed).toEqual(suppressed)
   })
 
   it('reports the write-mode isolation profile verbatim instead of fabricating it', () => {

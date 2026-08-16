@@ -80,6 +80,8 @@ erDiagram
 - **品牌化 ID 只有构造器可造**（`requestId` / `forgeId` / `commitSha` …），禁止 `as RequestId` 裸转；空值抛错，ID 来自受控代码，空即 bug。
 - **`findingInvariantViolation` 是后置兜底网**：任何绕过 `narrowProposal` 进入 `Finding` 的路径（replay 快照、手工构造的测试夹具）在发布前都会再校验一次——标题/正文非空、severity 合法、`findingId` 非空、blocker 必带场景、anchor 路径安全且 `anchored` 与 `fallbackReason` 一致。
 - **`findingDedupeKey` 是跨切片去重身份**（M4 分片并行）：`path \0 line \0 ruleId \0 title(trim+小写)`，用 `\0` 连接因为 `isSafeRelativePath` 已拒绝 NUL，组件内不可能伪造碰撞。注意它不同于 docs/06 的 per-finding 发布幂等键（`hash(path + anchor + ruleId)`），后者解决重试不重复发评论，前者解决多切片同一问题合并为一条。
+- **`findingMemoryKey` 是跨 PR 记忆身份**（M4 跨 PR 记忆）：与 `findingDedupeKey` 不同，它必须跨修订稳定，因此**不含行号/侧**（行号随修订漂移，同一问题换行后仍要能认出），只保留 `path + ruleId + title(trim+小写)`，同样 JSON 编码防碰撞（`ruleId`/`title` 来自模型输出、未做 NUL 消毒）。两者分工：`findingDedupeKey` 解决一次运行内多切片合并，`findingMemoryKey` 解决「后续 PR 上已决议的例外不再重复上报」。
+- **已决议例外（`ResolvedException`）单独版本化**：跨 PR 记忆文件自带 `version`（与 `result-json`、`replay` 快照三者各自独立版本化，见下文「版本化策略」），`key` 由 `path + ruleId + title` 重算而非信任存档，防止陈旧/被篡改的 key 造成误抑制。
 
 路径安全统一走 `isSafeRelativePath`：纯语法判断，拒绝绝对路径、盘符、`..` 穿越与 NUL，不解析符号链接——符号链接落界属于 M3 sandbox 层（docs/03）。
 
@@ -93,7 +95,7 @@ flowchart TB
     RJ --> S2["timing<br/>各阶段耗时"]
     RJ --> S3["policy<br/>trustLevel + capabilities"]
     RJ --> S4["isolation<br/>沙箱后端与画像"]
-    RJ --> S5["findings<br/>结构化列表 + 丢弃统计"]
+    RJ --> S5["findings<br/>结构化列表 + 丢弃统计 + 抑制列表"]
     RJ --> S6["publication<br/>发布成功/降级/失败数"]
     RJ --> S7["validation<br/>校验命令、退出码、执行完整度、拒绝特征串、完整日志"]
     RJ --> S8["write<br/>commit sha / PR url"]
@@ -105,6 +107,8 @@ flowchart TB
 信封中三个字段是本项目特有的：`findings`（结构化输出而非仅计数）、`rules`（可审计的生效规则集）、`replay`（B4 本地重放的入口）。
 
 `validation` 字段自 M3 起如实携带校验子进程的证据，落实「被消费而非静默丢弃」的硬约束（docs/03-review-pipeline.md 写模式时序）：`enforcement`（每条命令的沙箱执行完整度 `full`/`partial`，来自 `ConfinedArgv.enforcement`）、`denials`（匹配到的拒绝特征串，来自 `ConfinedArgv.denialSignatures`）、`log`（完整合并输出，校验失败时回帖到 change request）。
+
+`findings` 信封自 M4 跨 PR 记忆起新增 `suppressed` 数组：被 `findingMemoryKey` 命中「已决议例外」的 finding 不发布行内评论，但仍在 `result-json` 里如实列出（含 `key`、`resolvedBy`、`reason`），与 `discarded`（校验拒绝）区分开——抑制是「已决议」而非「被丢弃」。
 
 **安全提醒**：`result-json` 里模型派生的字符串仍是不可信数据。下游 workflow **不得**把它们直接拼进 shell 命令。文档里必须给出正确用法：
 
@@ -137,6 +141,7 @@ flowchart TB
 | `error-code` / `error-message` | 失败信息 | 稳定 |
 | `result-json` | 版本化信封 | 稳定 |
 | `blockers-count` | blocker 级 finding 数 | 新增 |
+| `suppressed-count` | 被跨 PR 记忆抑制的 finding 数 | 新增 |
 | `replay-id` | 本地重放快照 id | 新增 |
 | `forge` | 平台标识 | 新增 |
 
@@ -178,4 +183,4 @@ flowchart LR
     V2 -.->|"至少两个 minor 版本并行"| V1B
 ```
 
-规则：加可选字段不升版本；删字段或改语义必须升 major 版本，并保留旧版输出至少两个 minor 版本周期。`replay` 快照单独版本化，保证老快照能被新版本读取——否则 B4 的重放能力会随每次升级失效。
+规则：加可选字段不升版本；删字段或改语义必须升 major 版本，并保留旧版输出至少两个 minor 版本周期。`replay` 快照单独版本化，保证老快照能被新版本读取——否则 B4 的重放能力会随每次升级失效。跨 PR 记忆文件同样**单独版本化**（`version` 字段），与 `result-json`、`replay` 快照三者互不牵连，保证旧记忆档案能被新版本读取、且 `key` 一律由 `path + ruleId + title` 重算而不信任存档。

@@ -146,9 +146,13 @@ sequenceDiagram
 | `@dsr diagnose` | `diagnose` | trusted-read | 否 |
 | `@dsr fix` | `fix` | trusted-write | **是** |
 | `@dsr rules` | `rules`（打印生效规则） | untrusted | 否 |
+| `@dsr accept ["path","ruleId","title"] [原因]` | `accept`（记录已决议例外） | trusted-read | 否 |
+| `@dsr forget ["path","ruleId","title"]` | `forget`（撤销已决议例外） | trusted-read | 否 |
 | 其它 | `none` → neutral 退出 | — | — |
 
 命令必须出现在评论**首行**，避免用户引用他人评论时误触发。
+
+`accept` / `forget` 是跨 PR 记忆（docs/07）的写入口，不跑评审管线、不起 Agent：控制器解析首行的 JSON 身份（`path + ruleId + title`，即 `findingMemoryKey` 的组件）后调用 `ReviewMemory.recordResolved` / `forgetResolved`，失败阶段记作 `memory`。评审管线在 `validate` 之后、`publish` 之前用同一身份抑制命中例外——抑制是确定性控制器行为，不是 Agent 自觉。
 
 ## 状态机
 

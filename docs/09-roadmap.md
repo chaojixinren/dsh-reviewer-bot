@@ -133,6 +133,7 @@ flowchart LR
 - [ ] 千行级 PR 分片并行完成且 finding 跨切片去重
 - [ ] Daemon 模式签名校验失败不入队、不回显原因
 - [ ] Daemon 单仓库并发上限与背压生效
+- [x] 跨 PR 记忆识别已决议例外，后续 PR 不重复上报（`@dsr accept` / `@dsr forget` + `findingMemoryKey`）
 
 ### M5 发布与收尾
 
@@ -182,10 +183,10 @@ M2 已完成 4/4：`rule-registry`（`reviewRules` 服务与规则包注册表�
 
 M3 已完成 4/4：`sandbox 隔离与 mutate 阶段`（PR #38，#33）、`guard 硬红线单调拒绝`（PR #40，#34）、`校验命令执行与 commit 闸门`（PR #39，#35）、`diagnose 意图`（PR #37，#36）。
 
-M4 已完成 4/4：`bundle 发布`（#42）已落地——`@dshrb/bundle` 去掉 `private` 并补齐 `license` / `repository` / `publishConfig` 等发布元数据，`dependencies` 的 `workspace:*` 替换为精确版本；`cordis.patch.yml` 暴露完整意图集与写模式开关（`allowWrite` 保持 fail-closed 默认 `false`，新增 `enableDiagnose` 开关），并用装配/共存/卸载单测在真实 Cordis 容器里验证「与生态插件共享同一个 `ctx` 互不踩踏」。分片并行（#47）与 forge-gitlab（#48，iid 归一 + 契约套件）也已落地，driver-webhook（#45）也已落地；剩余跨 PR 记忆（#52）。
+M4 已完成 5/5：`bundle 发布`（#42）已落地——`@dshrb/bundle` 去掉 `private` 并补齐 `license` / `repository` / `publishConfig` 等发布元数据，`dependencies` 的 `workspace:*` 替换为精确版本；`cordis.patch.yml` 暴露完整意图集与写模式开关（`allowWrite` 保持 fail-closed 默认 `false`，新增 `enableDiagnose` 开关），并用装配/共存/卸载单测在真实 Cordis 容器里验证「与生态插件共享同一个 `ctx` 互不踩踏」。分片并行（#47）、forge-gitlab（#48，iid 归一 + 契约套件）、driver-webhook（#45）、跨 PR 记忆（#52：`findingMemoryKey` 跨 PR 身份 + `@dsr accept` / `@dsr forget` 记录/撤销已决议例外 + 确定性抑制）均已落地。
 
 M5 发布与收尾（进行中）：`forge-github` 写能力（#51）与 LICENSE（#53，PR #55）已落地；npm 发布（#54）的发布管线已就绪——`scripts/gen-package-manifests.mjs` 将 bundle 依赖闭包（`review-core` 与九个插件）标记为可发布（去掉 `private`，补 `license` / `repository` / `publishConfig`），新增 `.github/workflows/publish.yml` 按拓扑序构建并发布，`workspace:*` 由 pnpm 在发布时改写为精确 `0.1.0`。剩余 runtime bootstrap + release build（#50），以及 #54 的实际 `npm publish`（待合并后手动触发工作流，需 `NPM_TOKEN`）。
 
-已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver` + 共享 provider 契约测试套件（`runForgeConformance`）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider（含 `commitPatches` / `openPullRequest` 写能力，Git Data API）、`forge-gitlab` provider（REST v4，iid 归一 + `X-Gitlab-Token` 常量时间校验）、`tool-review` 只读工具 + `propose_patch`、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `mutate` / `publish` / `report`）、`ctx.tools.guard()` 写路径单调硬红线、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`、`driver-webhook`；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 18 个测试文件、592 例单测全绿。
+已实现：`review-core` 领域类型、`forge` 接口 + 注册表 + `AnchorResolver` + 共享 provider 契约测试套件（`runForgeConformance`）、`trust-policy` 四级信任判定与 `tools/pre-execute` 门禁、`forge-github` provider（含 `commitPatches` / `openPullRequest` 写能力，Git Data API）、`forge-gitlab` provider（REST v4，iid 归一 + `X-Gitlab-Token` 常量时间校验）、`tool-review` 只读工具 + `propose_patch`、`review-runtime` 八阶段管线（`ingest` / `route` / `authorize` / `assembleContext` / `reason` / `mutate` / `publish` / `report`）、`ctx.tools.guard()` 写路径单调硬红线、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）、`progress` sticky 上报、`driver-action`、`rule-registry`、`rules-baseline`、`forge-local`、`driver-cli`、`driver-webhook`、跨 PR 记忆（`findingMemoryKey` 跨 PR 身份 + `ReviewMemory` seam + 确定性抑制 + `@dsr accept` / `@dsr forget` + 版本化记忆档案）；`@dshrb/signature-probe` 在真实容器里验证扩展点签名。共 18 个测试文件、618 例单测全绿。
 
-未实现（刻意）：M4 的 跨 PR 记忆（#52）尚未实现；M5 发布与收尾仍在进行——runtime bootstrap / release build（#50）；npm 发布（#54）的发布管线已就绪但尚未实际 `npm publish`，`dsh plugin add @dshrb/bundle` 的线上验证待发布后执行。
+未实现（刻意）：M5 发布与收尾仍在进行——runtime bootstrap / release build（#50）；npm 发布（#54）的发布管线已就绪但尚未实际 `npm publish`，`dsh plugin add @dshrb/bundle` 的线上验证待发布后执行。

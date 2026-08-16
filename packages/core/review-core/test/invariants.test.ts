@@ -15,12 +15,14 @@ import {
   findingDedupeKey,
   findingId,
   findingInvariantViolation,
+  findingMemoryKey,
   forgeId,
   isAnchored,
   isSafeRelativePath,
   isSeverity,
   matchesGlob,
   meetsSeverityThreshold,
+  memoryKey,
   narrowPatchProposal,
   narrowProposal,
   requestId,
@@ -401,6 +403,30 @@ describe('findingDedupeKey', () => {
     const a = accept(proposal({ ruleId: 'a', title: 'b\u0000c' }))
     const b = accept(proposal({ ruleId: 'a\u0000b', title: 'c' }))
     expect(findingDedupeKey(a)).not.toBe(findingDedupeKey(b))
+  })
+})
+
+describe('findingMemoryKey', () => {
+  it('is a distinct identity from the cross-shard dedupe key', () => {
+    const finding = accept(proposal({ ruleId: 'correctness/eq', title: 'loose equality' }))
+    expect(findingMemoryKey(finding)).not.toBe(findingDedupeKey(finding))
+  })
+
+  it('is line-agnostic so the same problem matches across revisions', () => {
+    const base = accept(proposal({ ruleId: 'correctness/eq', title: 'loose equality' }))
+    const shifted: Finding = { ...base, anchor: anchorAt('src/paginate.ts', 999) }
+    expect(findingMemoryKey(shifted)).toBe(findingMemoryKey(base))
+    expect(findingDedupeKey(shifted)).not.toBe(findingDedupeKey(base))
+  })
+
+  it('normalizes the title case and trims, like the dedupe key', () => {
+    const a = accept(proposal({ ruleId: 'correctness/eq', title: '  Loose Equality  ' }))
+    const b = accept(proposal({ ruleId: 'correctness/eq', title: 'loose equality' }))
+    expect(findingMemoryKey(a)).toBe(findingMemoryKey(b))
+  })
+
+  it('memoryKey keeps a NUL from shifting field boundaries', () => {
+    expect(memoryKey('src/a.ts', 'a', 'b\u0000c')).not.toBe(memoryKey('src/a.ts', 'a\u0000b', 'c'))
   })
 })
 

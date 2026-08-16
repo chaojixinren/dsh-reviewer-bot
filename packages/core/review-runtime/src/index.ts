@@ -10,12 +10,12 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { changeRequestId, commitSha, forgeId } from '@dshrb/review-core'
-import { countBlockers, findingDedupeKey, findingId, findingInvariantViolation, isSafeRelativePath, meetsSeverityThreshold, severityRank } from '@dshrb/review-core'
+import { countBlockers, findingDedupeKey, findingId, findingInvariantViolation, findingMemoryKey, isSafeRelativePath, meetsSeverityThreshold, memoryKey, severityRank } from '@dshrb/review-core'
 import { narrowPatchProposal, narrowProposal, requestId, ruleId, toDiscarded } from '@dshrb/review-core'
 import type {
   CommentId, CommitSha, DiscardedProposal, Failure, Finding, ForgeId, IsolationProfile, NormalizedEvent, Patch,
-  Phase, RawPatch, RawProposal, RequestId, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
-  RulePackSummary, Severity, ValidationEnforcement, ValidationReport, WriteResult,
+  Phase, RawPatch, RawProposal, RequestId, ResolvedException, ReviewRequest, ReviewResult, ReviewIntent, ReviewTarget,
+  RulePackSummary, Severity, SuppressedFinding, ValidationEnforcement, ValidationReport, WriteResult,
 } from '@dshrb/review-core'
 import { createAnchorResolver, publishIdempotencyKey } from '@dshrb/forge'
 import type {
@@ -141,6 +141,13 @@ export interface StageDeps {
   readonly shardTokenBudget: number
   readonly matchRules: (path: string) => readonly Rule[]
   readonly memory: readonly string[]
+  /**
+   * Cross-PR memory store (docs/07): reads accepted exceptions to suppress
+   * repeat findings, and records/forgets them for `@dsr accept` / `@dsr forget`.
+   * Absent → no suppression (fail open, findings still publish) and the
+   * `accept`/`forget` intents fail closed with `E_MEMORY_UNAVAILABLE`.
+   */
+  readonly memoryStore?: ReviewMemory
   /** Active rule packs with versions, for the auditable result-json `rules`. */
   readonly packs?: () => readonly RulePackSummary[]
   /**
@@ -202,6 +209,19 @@ export interface StageDeps {
    * is skipped even when `Config.snapshotReplay` is true.
    */
   readonly writeSnapshot?: (snapshot: ReplaySnapshot) => Promise<void>
+}
+
+/**
+ * Cross-PR memory store seam. The runtime stays I/O-free; a driver supplies a
+ * real backend (file, git note, daemon state, or an ecosystem memory plugin).
+ */
+export interface ReviewMemory {
+  /** Accepted exceptions for one repo, keyed by `findingMemoryKey`. */
+  listResolved(repo: string): Promise<readonly ResolvedException[]>
+  /** Records a newly accepted exception. */
+  recordResolved(repo: string, exception: ResolvedException): Promise<void>
+  /** Removes an accepted exception so its finding is reported again. */
+  forgetResolved(repo: string, key: string): Promise<void>
 }
 
 /** One shard's raw fan-out output, kept separate so the merger can see shard identity. */
@@ -472,6 +492,8 @@ function routeUnchecked(event: NormalizedEvent): ReviewIntent {
       case 'diagnose': return 'diagnose'
       case 'fix': return 'fix'
       case 'rules': return 'rules'
+      case 'accept': return 'accept'
+      case 'forget': return 'forget'
       default: return 'none'
     }
   }
@@ -1018,6 +1040,98 @@ export function mergeFindings(sharded: readonly ShardFinding[]): MergedFindings 
   return { findings, merged }
 }
 
+// --- Cross-PR memory suppression (docs/07) ----------------------------------
+
+/**
+ * Suppresses findings whose `findingMemoryKey` matches a maintainer-accepted
+ * exception, so a resolved exception is not reported again on a later PR. This
+ * is a controller-side, deterministic filter — the agent's proposal is still
+ * validated first, and only a finding that already passed `narrowProposal` can
+ * be suppressed. Suppressed findings are returned separately for the audit
+ * trail and summary, never silently dropped.
+ */
+export function suppressResolved(
+  findings: readonly Finding[], resolved: readonly ResolvedException[],
+): { findings: readonly Finding[]; suppressed: readonly SuppressedFinding[] } {
+  const byKey = new Map<string, ResolvedException>()
+  for (const exception of resolved) {
+    byKey.set(exception.key, exception)
+  }
+  const kept: Finding[] = []
+  const suppressed: SuppressedFinding[] = []
+  for (const finding of findings) {
+    const key = findingMemoryKey(finding)
+    const exception = byKey.get(key)
+    if (exception === undefined) {
+      kept.push(finding)
+    } else {
+      suppressed.push({
+        key,
+        path: finding.anchor.path,
+        title: finding.title,
+        severity: finding.severity,
+        resolvedBy: exception.resolvedBy,
+        reason: exception.reason,
+      })
+    }
+  }
+  return { findings: kept, suppressed }
+}
+
+/**
+ * The copy-pasteable `@dsr accept …` command for one finding. It embeds the
+ * finding's memory identity as a JSON array — exactly `memoryKey(path, ruleId,
+ * title)` — so `@dsr accept` can record the exception with no reverse lookup of
+ * the prior run's findings.
+ */
+export function acceptCommand(finding: Finding): string {
+  return `@dsr accept ${memoryKey(finding.anchor.path, finding.ruleId ?? '', finding.title)}`
+}
+
+/** Result of parsing an `@dsr accept` / `@dsr forget` comment body. */
+export type MemoryReference =
+  | { readonly ok: true; readonly path: string; readonly ruleId: string; readonly title: string; readonly reason: string }
+  | { readonly ok: false; readonly message: string }
+
+/**
+ * Parses the memory identity carried by `@dsr accept <json>` / `@dsr forget
+ * <json>`. The identity is the same JSON array `acceptCommand` emits:
+ * `["path", "ruleId", "title"]`. The `reason` is the remainder of the comment
+ * body after the first line. A malformed or unsafe reference is reported, never
+ * partially applied.
+ */
+export function parseMemoryReference(body: string): MemoryReference {
+  const lines = body.split(/\r?\n/)
+  const firstLine = lines[0] ?? ''
+  const open = firstLine.indexOf('[')
+  const close = firstLine.lastIndexOf(']')
+  if (open === -1 || close === -1 || close <= open) {
+    return { ok: false, message: 'expected `@dsr accept ["path","ruleId","title"]` or `@dsr forget ["path","ruleId","title"]` on the first line' }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(firstLine.slice(open, close + 1))
+  } catch {
+    return { ok: false, message: 'the memory identity must be a JSON array of three strings' }
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 3 || parsed.some((part) => typeof part !== 'string')) {
+    return { ok: false, message: 'the memory identity must be a JSON array of exactly three strings: [path, ruleId, title]' }
+  }
+  const [rawPath, rawRuleId, rawTitle] = parsed as [string, string, string]
+  const path = rawPath.trim()
+  const title = rawTitle.trim()
+  const rule = rawRuleId.trim()
+  if (!isSafeRelativePath(path)) {
+    return { ok: false, message: `path '${excerpt(path)}' is not a safe repo-relative path` }
+  }
+  if (title === '') {
+    return { ok: false, message: 'the memory identity title must not be empty' }
+  }
+  const reason = lines.slice(1).join('\n').trim()
+  return { ok: true, path, ruleId: rule, title, reason }
+}
+
 // --- Publish ----------------------------------------------------------------
 
 export interface PublishResult {
@@ -1034,18 +1148,22 @@ export interface PublishResult {
  * could not place, listed once as "(summary only)". The two lists must be
  * disjoint — the caller (`publish`) splits `visible` on `anchor.anchored`.
  * `incompleteShards` (when > 0) is declared explicitly so a partial fan-out is
- * never mistaken for full coverage.
+ * never mistaken for full coverage; `suppressed` lists findings that cross-PR
+ * memory recognized as already-accepted, with the `@dsr accept` copy-paste
+ * command on each published finding.
  */
 export function buildSummary(
   findings: readonly Finding[], stats: PublishStats, degraded: readonly Finding[],
-  incompleteShards = 0,
+  incompleteShards = 0, suppressed: readonly SuppressedFinding[] = [],
 ): string {
   const lines: string[] = ['## DSH Reviewer Bot summary', '']
   if (findings.length === 0 && degraded.length === 0) {
-    lines.push('No findings.')
+    // When every finding was suppressed as an accepted exception, "No findings."
+    // would contradict the "suppressed N" note that follows, so say what happened.
+    lines.push(suppressed.length > 0 ? 'All findings were suppressed as accepted exceptions.' : 'No findings.')
   } else {
     for (const finding of findings) {
-      lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line})`)
+      lines.push(`- **${finding.severity}**: ${finding.title} (${finding.anchor.path}:${finding.anchor.line}) — accept with \`${acceptCommand(finding)}\``)
     }
     for (const finding of degraded) {
       lines.push(`- **${finding.severity}** (summary only): ${finding.title} — ${finding.anchor.fallbackReason ?? 'could not be anchored'}`)
@@ -1055,6 +1173,9 @@ export function buildSummary(
   lines.push(`_published ${stats.published}, degraded to summary ${stats.degradedToSummary}, failed ${stats.failed}_`)
   if (incompleteShards > 0) {
     lines.push(`_${incompleteShards} diff shard${incompleteShards === 1 ? '' : 's'} did not complete; the findings above cover the shards that did._`)
+  }
+  if (suppressed.length > 0) {
+    lines.push(`_suppressed ${suppressed.length} finding${suppressed.length === 1 ? '' : 's'} accepted earlier: ${suppressed.map((entry) => entry.title).join(', ')}_`)
   }
   return lines.join('\n')
 }
@@ -1069,7 +1190,7 @@ export function buildSummary(
  */
 export async function publish(
   request: ReviewRequest, findings: readonly Finding[], deps: StageDeps,
-  incompleteShards = 0,
+  incompleteShards = 0, suppressed: readonly SuppressedFinding[] = [],
 ): Promise<PublishResult> {
   const target = request.event.target
   const sink = deps.forges.require<CommentSink>(request.event.forgeId, ['comment-sink', 'inline-comments'])
@@ -1080,7 +1201,7 @@ export async function publish(
   const stats = await sink.createInlineComments(target, visible, bot.id)
   const degraded = visible.filter((finding) => !finding.anchor.anchored)
   const anchored = visible.filter((finding) => finding.anchor.anchored)
-  const summary = buildSummary(anchored, stats, degraded, incompleteShards)
+  const summary = buildSummary(anchored, stats, degraded, incompleteShards, suppressed)
   const commentId = await sink.createComment(target, summary)
   return { commentId, summary, ...stats }
 }
@@ -1638,6 +1759,7 @@ export function report(partial: Partial<ReviewResult>, failure?: Failure): Revie
     verdict,
     findings,
     discarded: partial.discarded ?? [],
+    ...(partial.suppressed === undefined ? {} : { suppressed: partial.suppressed }),
     ...(partial.operation === undefined ? {} : { operation: partial.operation }),
     ...(partial.forgeId === undefined ? {} : { forgeId: partial.forgeId }),
     ...(partial.trust === undefined ? {} : { trust: partial.trust }),
@@ -1886,6 +2008,90 @@ export function parseReplaySnapshot(raw: unknown): ReplaySnapshot {
   }
 }
 
+// --- Cross-PR memory file ----------------------------------------------------
+
+/**
+ * The cross-PR memory file schema version, versioned independently of both
+ * result-json and the replay snapshot (docs/07:179). Like the snapshot, only a
+ * removed field or a changed meaning bumps it; adding an optional field keeps
+ * the version. Old memory files must stay readable, so `parseMemory` decodes by
+ * version instead of assuming the current shape.
+ */
+export const MEMORY_VERSION = 1
+
+/** Serializes a repo's accepted exceptions to the versioned file format. */
+export function serializeMemory(repo: string, exceptions: readonly ResolvedException[]): string {
+  return JSON.stringify({ version: MEMORY_VERSION, repo, exceptions }, null, 2)
+}
+
+function rehydrateException(raw: unknown): ResolvedException {
+  if (!isRecord(raw)) {
+    throw new SnapshotError('memory exception must be an object')
+  }
+  const path = snapshotString(raw, 'path')
+  if (!isSafeRelativePath(path)) {
+    throw new SnapshotError(`memory exception path '${excerpt(path)}' is not repo-relative`)
+  }
+  const title = snapshotString(raw, 'title')
+  if (title.trim() === '') {
+    throw new SnapshotError('memory exception title must not be empty')
+  }
+  const reason = snapshotString(raw, 'reason')
+  const resolvedBy = snapshotString(raw, 'resolvedBy')
+  if (resolvedBy.trim() === '') {
+    throw new SnapshotError('memory exception resolvedBy must not be empty')
+  }
+  const resolvedAt = raw.resolvedAt
+  if (typeof resolvedAt !== 'number' || !Number.isFinite(resolvedAt)) {
+    throw new SnapshotError("memory exception field 'resolvedAt' must be a number")
+  }
+  const ruleRaw = snapshotOptionalString(raw, 'ruleId')
+  const changeRequestRaw = snapshotOptionalString(raw, 'changeRequestId')
+  const key = memoryKey(path, ruleRaw ?? '', title)
+  return {
+    key,
+    path,
+    title,
+    reason,
+    resolvedBy,
+    resolvedAt,
+    ...(ruleRaw === undefined || ruleRaw.trim() === '' ? {} : { ruleId: ruleId(ruleRaw) }),
+    ...(changeRequestRaw === undefined || changeRequestRaw.trim() === '' ? {} : { changeRequestId: changeRequestId(changeRequestRaw) }),
+  }
+}
+
+/**
+ * Parses and validates a cross-PR memory file. The version gate mirrors the
+ * snapshot's: a future version is rejected with an "upgrade" hint, and a
+ * corrupt exception is rejected rather than silently dropping or mis-keying a
+ * suppression. The stored `key` is recomputed from `path + ruleId + title`, so
+ * a stale or tampered key cannot desync suppression.
+ */
+export function parseMemory(raw: unknown): { repo: string; exceptions: readonly ResolvedException[] } {
+  if (!isRecord(raw)) {
+    throw new SnapshotError('memory file must be an object')
+  }
+  const version = raw.version
+  if (typeof version !== 'number' || !Number.isInteger(version) || version <= 0) {
+    throw new SnapshotError('memory file must carry a positive integer version')
+  }
+  if (version > MEMORY_VERSION) {
+    throw new SnapshotError(`memory version ${version} is newer than this build supports (${MEMORY_VERSION}); upgrade dshrb to read it`)
+  }
+  if (version < MEMORY_VERSION) {
+    throw new SnapshotError(`memory version ${version} is no longer readable`)
+  }
+  const repo = snapshotString(raw, 'repo')
+  if (repo.trim() === '') {
+    throw new SnapshotError("memory file field 'repo' must not be empty")
+  }
+  const exceptions = raw.exceptions
+  if (!Array.isArray(exceptions)) {
+    throw new SnapshotError("memory file field 'exceptions' must be an array")
+  }
+  return { repo, exceptions: exceptions.map(rehydrateException) }
+}
+
 // --- Orchestration ----------------------------------------------------------
 
 function toFailure(error: unknown, phase: Phase): Failure {
@@ -1917,6 +2123,76 @@ function toFailure(error: unknown, phase: Phase): Failure {
     guidance: 'see the run logs for details',
     retryable: false,
   }
+}
+
+/** Requires the cross-PR memory seam; an `accept`/`forget` without one fails closed. */
+function requireMemoryStore(deps: StageDeps): ReviewMemory {
+  if (deps.memoryStore === undefined) {
+    throw new ReviewError(
+      'E_MEMORY_UNAVAILABLE', 'memory',
+      'cross-PR memory commands require a persistent memory store, which this driver did not provide',
+      false,
+    )
+  }
+  return deps.memoryStore
+}
+
+/**
+ * Handles `@dsr accept` / `@dsr forget`: record or forget a maintainer-accepted
+ * exception and reply with a confirmation comment. The identity is parsed from
+ * the comment's first line (the same JSON array `acceptCommand` emits), so no
+ * reverse lookup of a prior run's findings is needed.
+ */
+async function runMemoryCommand(
+  request: ReviewRequest, intent: ReviewIntent, deps: StageDeps, startedAt: number,
+): Promise<ReviewResult> {
+  const store = requireMemoryStore(deps)
+  const parsed = parseMemoryReference(request.event.commentBody ?? '')
+  if (!parsed.ok) {
+    throw new ReviewError('E_MEMORY_ARGS', 'memory', parsed.message, false)
+  }
+
+  const target = request.event.target
+  const key = memoryKey(parsed.path, parsed.ruleId, parsed.title)
+  if (intent === 'accept') {
+    await store.recordResolved(target.repo, {
+      key,
+      path: parsed.path,
+      title: parsed.title,
+      reason: parsed.reason,
+      resolvedBy: request.event.actorLogin,
+      resolvedAt: deps.now(),
+      ...(parsed.ruleId === '' ? {} : { ruleId: ruleId(parsed.ruleId) }),
+      changeRequestId: target.changeRequestId,
+    })
+  } else {
+    await store.forgetResolved(target.repo, key)
+  }
+
+  const summary = intent === 'accept'
+    ? `## DSH Reviewer Bot\n\nAccepted \`${parsed.title}\` (${parsed.path}) as a resolved exception${parsed.reason === '' ? '' : ` — ${parsed.reason}`}. It will be suppressed on future change requests until \`@dsr forget ${key}\`.`
+    : `## DSH Reviewer Bot\n\nForgot the resolved exception \`${parsed.title}\` (${parsed.path}). It will be reported again on future change requests.`
+
+  const sink = deps.forges.require<CommentSink>(request.event.forgeId, ['comment-sink'])
+  const commentId = await sink.createComment(target, summary)
+
+  return report({
+    requestId: request.requestId,
+    operation: intent,
+    forgeId: request.event.forgeId,
+    trust: request.trust,
+    capabilities: request.capabilities,
+    summary,
+    findings: [],
+    discarded: [],
+    ...(commentId === undefined ? {} : { stickyCommentId: commentId }),
+    verdict: {
+      status: 'success',
+      findingsCount: 0,
+      blockersCount: 0,
+      durationMs: deps.now() - startedAt,
+    },
+  })
 }
 
 /**
@@ -1954,6 +2230,7 @@ export async function runReview(
   let published: PublishResult | undefined
   let findings: readonly Finding[] | undefined
   let discarded: readonly DiscardedProposal[] | undefined
+  let suppressed: readonly SuppressedFinding[] | undefined
   // Fan-out telemetry, hoisted so a mid-pipeline failure still reports it.
   let incompleteShards: number | undefined
   let shardMs: number | undefined
@@ -1990,6 +2267,15 @@ export async function runReview(
         explainDenial({ ...authorized.actor, allowWrite: deps.allowWrite }),
         false,
       )
+    }
+
+    // Cross-PR memory commands (`@dsr accept` / `@dsr forget`) are a small
+    // controller action, not the review pipeline: they record or forget an
+    // accepted exception and reply with a confirmation. No agent runs, so no
+    // trust scope, diff, or write context is needed.
+    if (intent === 'accept' || intent === 'forget') {
+      phase = 'memory'
+      return await runMemoryCommand(request, intent, deps, startedAt)
     }
 
     // Bind the trust decision for this run so the agent's visible tool set and
@@ -2050,6 +2336,21 @@ export async function runReview(
     // Standalone `propose_patch` proposals narrow through the same channel's
     // patch arm; rejections join the audit trail instead of throwing.
     const narrowedPatches = narrowPatches(output.patches)
+    // Cross-PR memory: suppress validated findings whose identity matches a
+    // maintainer-accepted exception, so a resolved exception is not reported
+    // again. Best-effort — a memory read failure publishes everything (fail
+    // open) rather than hiding a real finding behind a storage fault.
+    suppressed = []
+    if (deps.memoryStore !== undefined) {
+      try {
+        const resolved = await deps.memoryStore.listResolved(event.target.repo)
+        const filtered = suppressResolved(validated.findings, resolved)
+        validated = { findings: filtered.findings, discarded: validated.discarded }
+        suppressed = filtered.suppressed
+      } catch {
+        suppressed = []
+      }
+    }
     findings = validated.findings
     discarded = [...validated.discarded, ...narrowedPatches.discarded]
 
@@ -2076,7 +2377,7 @@ export async function runReview(
     }
 
     phase = 'publish'
-    published = await publish(request, validated.findings, deps, incompleteShards ?? 0)
+    published = await publish(request, validated.findings, deps, incompleteShards ?? 0, suppressed ?? [])
 
     // Write mode only: land the accepted patches inside the sandbox boundary and
     // report the isolation profile honestly (docs/03, docs/07 line 95).
@@ -2121,6 +2422,7 @@ export async function runReview(
       summary: published.summary,
       findings: validated.findings,
       discarded,
+      ...(suppressed === undefined || suppressed.length === 0 ? {} : { suppressed }),
       ...(write === undefined ? {} : { write }),
       ...(isolation === undefined ? {} : { isolation }),
       ...(shardMs === undefined && incompleteShards === undefined
@@ -2171,6 +2473,7 @@ export async function runReview(
       // result-json reflects the forge state instead of an empty finding set.
       ...(findings === undefined ? {} : { findings }),
       ...(discarded === undefined ? {} : { discarded }),
+      ...(suppressed === undefined || suppressed.length === 0 ? {} : { suppressed }),
       ...(published === undefined
         ? {}
         : {

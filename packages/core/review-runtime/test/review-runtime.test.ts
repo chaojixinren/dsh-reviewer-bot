@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { changeRequestId, commentId, commitSha, forgeId, requestId, ruleId } from '@dshrb/review-core'
 import type {
-  Failure, Finding, NormalizedEvent, Patch, RawProposal, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget,
+  Failure, Finding, NormalizedEvent, Patch, RawProposal, ResolvedException, ReviewIntent, ReviewRequest, ReviewResult, ReviewTarget, SuppressedFinding,
 } from '@dshrb/review-core'
 import { createForgeRegistry } from '@dshrb/forge'
 import type {
@@ -14,14 +14,15 @@ import type { TrustPolicy } from '@dshrb/trust-policy'
 import type { FsPathInfo, FsTarget, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type { ConfinedArgv, SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
-  applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
+  acceptCommand, applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
   buildValidationEnv, classifyConfinedRun, clusterFiles, deriveReplayId, extractLocalImports, fanOutShards,
-  ingest, mergeFindings, mutate, narrowPatches, parseReplaySnapshot, reason, renderDiagnoseContext, report,
-  resolveLocalImport, route, runReview, runValidationCommands, shardDiff, SNAPSHOT_VERSION, toConfinedPolicy,
-  UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog, writeBranchName,
+  ingest, mergeFindings, mutate, narrowPatches, parseMemory, parseMemoryReference, parseReplaySnapshot, reason,
+  renderDiagnoseContext, report, resolveLocalImport, route, runReview, runValidationCommands, serializeMemory, shardDiff,
+  SNAPSHOT_VERSION, suppressResolved, toConfinedPolicy, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
+  writeBranchName,
 } from '../src/index.ts'
 import type {
-  AgentOutput, BoundedContext, CommandOutcome, Config, ReplaySnapshot, ShardFinding, StageDeps, WriteFs,
+  AgentOutput, BoundedContext, CommandOutcome, Config, ReplaySnapshot, ReviewMemory, ShardFinding, StageDeps, WriteFs,
 } from '../src/index.ts'
 
 // --- Fixtures ---------------------------------------------------------------
@@ -232,6 +233,36 @@ function validProposal(over: Partial<RawProposal> = {}): RawProposal {
   }
 }
 
+/** A `Finding` that passes `validate` unchanged, for memory-suppression tests. */
+function validFinding(): Finding {
+  const narrowed = validate([validProposal()], diffFixture(), [ruleFixture()])
+  if (narrowed.findings.length !== 1) {
+    throw new Error('expected validProposal to narrow to exactly one finding')
+  }
+  return narrowed.findings[0] as Finding
+}
+
+function resolvedFixture(over: Partial<ResolvedException> = {}): ResolvedException {
+  return {
+    key: '["src/index.ts","","loose equality"]',
+    path: 'src/index.ts',
+    title: 'loose equality',
+    reason: 'accepted as intentional',
+    resolvedBy: 'bob',
+    resolvedAt: 0,
+    ...over,
+  }
+}
+
+function memoryStoreFixture(over: Partial<ReviewMemory> = {}): ReviewMemory {
+  return {
+    listResolved: async () => [],
+    recordResolved: async () => {},
+    forgetResolved: async () => {},
+    ...over,
+  }
+}
+
 // --- route (acceptance gate 3) ---------------------------------------------
 
 describe('route', () => {
@@ -265,6 +296,8 @@ describe('route', () => {
       ['@dsr diagnose', 'diagnose'],
       ['@dsr fix', 'fix'],
       ['@dsr rules', 'rules'],
+      ['@dsr accept ["src/index.ts","","loose equality"]', 'accept'],
+      ['@dsr forget ["src/index.ts","","loose equality"]', 'forget'],
       ['@DSR REVIEW', 'review'],
     ]
     for (const [line, intent] of cases) {
@@ -777,6 +810,21 @@ describe('buildSummary', () => {
 
   it('says no findings when empty', () => {
     expect(buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [])).toContain('No findings.')
+  })
+
+  it('does not claim "No findings." when every finding was suppressed', () => {
+    const suppressed: readonly SuppressedFinding[] = [{
+      key: '["src/index.ts","","loose equality"]',
+      path: 'src/index.ts',
+      title: 'loose equality',
+      severity: 'major',
+      resolvedBy: 'bob',
+      reason: 'intentional',
+    }]
+    const text = buildSummary([], { published: 0, degradedToSummary: 0, failed: 0 }, [], 0, suppressed)
+    expect(text).not.toContain('No findings.')
+    expect(text).toContain('All findings were suppressed as accepted exceptions.')
+    expect(text).toContain('suppressed 1 finding')
   })
 
   it('declares incomplete shards explicitly instead of pretending full coverage', () => {
@@ -1614,5 +1662,186 @@ describe('snapshot', () => {
     expect(result.findings).toHaveLength(1)
     expect(result.replayId).toBeUndefined()
     expect(result.snapshotError).toContain('disk full')
+  })
+})
+
+// --- cross-PR memory (pure) -------------------------------------------------
+
+describe('suppressResolved', () => {
+  it('suppresses a finding whose memory key matches an accepted exception', () => {
+    const finding = validFinding()
+    const suppressed = suppressResolved([finding], [resolvedFixture()])
+    expect(suppressed.findings).toHaveLength(0)
+    expect(suppressed.suppressed).toHaveLength(1)
+    expect(suppressed.suppressed[0]?.title).toBe('loose equality')
+    expect(suppressed.suppressed[0]?.resolvedBy).toBe('bob')
+  })
+
+  it('is line-agnostic: the same path+rule+title on a shifted line still matches', () => {
+    // The cross-PR identity deliberately ignores the anchor line, because lines
+    // move between revisions (docs/07).
+    const finding = validFinding()
+    const shifted: Finding = { ...finding, anchor: { ...finding.anchor, line: 99 } }
+    const suppressed = suppressResolved([shifted], [resolvedFixture()])
+    expect(suppressed.findings).toHaveLength(0)
+    expect(suppressed.suppressed).toHaveLength(1)
+  })
+
+  it('keeps a finding whose path differs', () => {
+    const finding: Finding = { ...validFinding(), anchor: { ...validFinding().anchor, path: 'src/other.ts' } }
+    const suppressed = suppressResolved([finding], [resolvedFixture()])
+    expect(suppressed.findings).toHaveLength(1)
+    expect(suppressed.suppressed).toHaveLength(0)
+  })
+
+  it('keeps every finding when there are no resolved exceptions', () => {
+    const finding = validFinding()
+    const suppressed = suppressResolved([finding], [])
+    expect(suppressed.findings).toHaveLength(1)
+    expect(suppressed.suppressed).toHaveLength(0)
+  })
+})
+
+describe('parseMemoryReference', () => {
+  it('parses the identity plus a multi-line reason', () => {
+    const parsed = parseMemoryReference('@dsr accept ["src/index.ts","","loose equality"]\naccepted as intentional\nby bob')
+    expect(parsed).toEqual({ ok: true, path: 'src/index.ts', ruleId: '', title: 'loose equality', reason: 'accepted as intentional\nby bob' })
+  })
+
+  it('parses an identity with no reason', () => {
+    const parsed = parseMemoryReference('@dsr accept ["src/index.ts","correctness/eq","loose equality"]')
+    expect(parsed).toEqual({ ok: true, path: 'src/index.ts', ruleId: 'correctness/eq', title: 'loose equality', reason: '' })
+  })
+
+  it('rejects a non-JSON identity', () => {
+    const parsed = parseMemoryReference('@dsr accept [oops]')
+    expect(parsed).toEqual({ ok: false, message: expect.stringContaining('JSON array') })
+  })
+
+  it('rejects a JSON identity with the wrong arity', () => {
+    const parsed = parseMemoryReference('@dsr accept ["src/index.ts","loose equality"]')
+    expect(parsed).toEqual({ ok: false, message: expect.stringContaining('three strings') })
+  })
+
+  it('rejects an unsafe path', () => {
+    const parsed = parseMemoryReference('@dsr accept ["../etc/passwd","","bad"]')
+    expect(parsed).toEqual({ ok: false, message: expect.stringContaining('safe repo-relative path') })
+  })
+
+  it('rejects an empty title', () => {
+    const parsed = parseMemoryReference('@dsr accept ["src/index.ts","","   "]')
+    expect(parsed).toEqual({ ok: false, message: expect.stringContaining('title') })
+  })
+})
+
+describe('acceptCommand', () => {
+  it('round-trips through parseMemoryReference', () => {
+    const command = acceptCommand(validFinding())
+    const parsed = parseMemoryReference(command)
+    expect(parsed).toEqual({ ok: true, path: 'src/index.ts', ruleId: '', title: 'loose equality', reason: '' })
+  })
+})
+
+describe('serializeMemory / parseMemory', () => {
+  it('round-trips accepted exceptions, recomputing the key', () => {
+    const exception = resolvedFixture({ ruleId: ruleId('correctness/eq') })
+    const parsed = parseMemory(JSON.parse(serializeMemory('acme/widgets', [exception])))
+    expect(parsed.repo).toBe('acme/widgets')
+    expect(parsed.exceptions).toHaveLength(1)
+    expect(parsed.exceptions[0]?.key).toBe('["src/index.ts","correctness/eq","loose equality"]')
+    expect(parsed.exceptions[0]?.ruleId).toBe(ruleId('correctness/eq'))
+  })
+
+  it('rejects a future memory version with an upgrade hint', () => {
+    const raw = { version: 99, repo: 'acme/widgets', exceptions: [] }
+    expect(() => parseMemory(raw)).toThrow(/newer than this build/)
+  })
+
+  it('rejects a corrupt exception instead of mis-keying a suppression', () => {
+    const raw = { version: 1, repo: 'acme/widgets', exceptions: [{ path: '../evil', title: 'x', reason: '', resolvedBy: 'a', resolvedAt: 1 }] }
+    expect(() => parseMemory(raw)).toThrow(/repo-relative/)
+  })
+})
+
+// --- cross-PR memory (runReview) --------------------------------------------
+
+describe('runReview cross-PR memory', () => {
+  it('suppresses a resolved exception and reports it in the result and summary', async () => {
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({ listResolved: async () => [resolvedFixture()] }),
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(0)
+    expect(result.suppressed).toHaveLength(1)
+    expect(result.suppressed?.[0]?.title).toBe('loose equality')
+    expect(result.summary).toContain('suppressed 1 finding')
+  })
+
+  it('publishes everything when the memory store read fails (fail open)', async () => {
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({
+        listResolved: async () => { throw new Error('store down') },
+      }),
+      runAgent: async () => ({ proposals: [validProposal()], patches: [] }),
+    })
+    const result = await runReview(prPayload(), deps, configFixture())
+    expect(result.verdict.status).toBe('success')
+    expect(result.findings).toHaveLength(1)
+    expect(result.suppressed).toBeUndefined()
+  })
+
+  it('records an accepted exception for @dsr accept', async () => {
+    const recorded: Array<{ repo: string; exception: ResolvedException }> = []
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({
+        recordResolved: async (repo, exception) => { recorded.push({ repo, exception }) },
+      }),
+    })
+    const result = await runReview(
+      commentPayload('@dsr accept ["src/index.ts","","loose equality"]\naccepted as intentional'),
+      deps, configFixture(),
+    )
+    expect(result.verdict.status).toBe('success')
+    expect(result.operation).toBe('accept')
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]?.repo).toBe('acme/widgets')
+    expect(recorded[0]?.exception.key).toBe('["src/index.ts","","loose equality"]')
+    expect(recorded[0]?.exception.reason).toBe('accepted as intentional')
+    expect(recorded[0]?.exception.resolvedBy).toBe('bob')
+    expect(result.stickyCommentId).toBe(commentId('c-1'))
+  })
+
+  it('forgets an accepted exception for @dsr forget', async () => {
+    const forgotten: Array<{ repo: string; key: string }> = []
+    const deps = depsFixture({
+      memoryStore: memoryStoreFixture({
+        forgetResolved: async (repo, key) => { forgotten.push({ repo, key }) },
+      }),
+    })
+    const result = await runReview(
+      commentPayload('@dsr forget ["src/index.ts","","loose equality"]'),
+      deps, configFixture(),
+    )
+    expect(result.verdict.status).toBe('success')
+    expect(result.operation).toBe('forget')
+    expect(forgotten).toEqual([{ repo: 'acme/widgets', key: '["src/index.ts","","loose equality"]' }])
+  })
+
+  it('fails closed with E_MEMORY_UNAVAILABLE when no store is provided', async () => {
+    const deps = depsFixture()
+    const result = await runReview(commentPayload('@dsr accept ["src/index.ts","","loose equality"]'), deps, configFixture())
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.code).toBe('E_MEMORY_UNAVAILABLE')
+    expect(result.failure?.phase).toBe('memory')
+  })
+
+  it('fails closed with E_MEMORY_ARGS on a malformed command', async () => {
+    const deps = depsFixture({ memoryStore: memoryStoreFixture() })
+    const result = await runReview(commentPayload('@dsr accept not-json'), deps, configFixture())
+    expect(result.verdict.status).toBe('failed')
+    expect(result.failure?.code).toBe('E_MEMORY_ARGS')
+    expect(result.failure?.phase).toBe('memory')
   })
 })

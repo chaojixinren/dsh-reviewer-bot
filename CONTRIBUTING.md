@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目处于 **M4（生态与规模化）已完成 4/4** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。M4 已落地 bundle 发布、forge-gitlab（iid 归一 + 契约套件）、分片并行、driver-webhook；剩余跨 PR 记忆（#52）。M5 发布与收尾进行中：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪（实际 `npm publish` 待触发），剩余 runtime bootstrap / release build（#50）。
+项目处于 **M4（生态与规模化）已完成 5/5** 阶段：M1 只读评审闭环、M2 规则与本地化、M3 写模式均已全部落地（`review-core` 领域类型、forge 接口/注册表 + 锚定器 + 共享 provider 契约测试套件、`trust-policy` 信任判定、`forge-github` 与 `forge-gitlab` provider、`tool-review` 只读工具、`review-runtime` 八阶段管线、`progress` sticky 上报、`driver-action`、`driver-webhook`、`driver-cli`、`rule-registry`、`rules-baseline`、`forge-local`）。M3 交付写模式：`mutate` 阶段 + sandbox 写隔离、`ctx.tools.guard()` 写路径单调硬红线、`propose_patch`、校验命令闸门与 commit 决策、`diagnose` 意图（读 CI 失败日志定位根因并回帖）。M4 已落地 bundle 发布、forge-gitlab（iid 归一 + 契约套件）、分片并行、driver-webhook、跨 PR 记忆（`findingMemoryKey` + `@dsr accept` / `@dsr forget` 记录/撤销已决议例外 + 确定性抑制）。M5 发布与收尾进行中：`forge-github` 写能力（#51）与 LICENSE（#53）已落地，npm 发布（#54）管线已就绪（实际 `npm publish` 待触发），剩余 runtime bootstrap / release build（#50）。
 
 动手前请先读：
 
