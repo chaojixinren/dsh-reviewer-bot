@@ -2857,10 +2857,17 @@ function createShardImports(ctx: Context): NonNullable<StageDeps['shardImports']
 }
 
 export function apply(ctx: Context, config: Config): void {
+  const dshrb = ctx.get('dshrb')
   const base: Omit<StageDeps, 'runAgent'> = {
     forges: ctx.forges,
     now: () => Date.now(),
-    allowWrite: config.allowWrite,
+    // Shared config first (Web UI + env fallback), then this plugin's own
+    // config for standalone deployments without the bundle. Read lazily via a
+    // getter so a Web UI toggle change applies to the next review run without
+    // a profile restart.
+    get allowWrite() {
+      return dshrb === undefined ? config.allowWrite : dshrb.get().allowWrite
+    },
     minSeverity: config.minSeverity,
     shardBytes: config.shardBytes,
     parallelShards: config.parallelShards,

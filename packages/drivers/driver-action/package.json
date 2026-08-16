@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/driver-action",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "GitHub Action driver shell.",

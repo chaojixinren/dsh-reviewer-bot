@@ -23,6 +23,9 @@
     },
     {
       "path": "../../tools/tool-review"
+    },
+    {
+      "path": "../config"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "@dshrb/trust-policy",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "type": "module",
   "description": "Actor permission to TrustLevel resolution and tool execution gating.",
   "license": "MIT",
@@ -26,7 +26,8 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.1",
     "@dshrb/review-core": "workspace:*",
-    "@dshrb/forge": "workspace:*"
+    "@dshrb/forge": "workspace:*",
+    "@dshrb/config": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

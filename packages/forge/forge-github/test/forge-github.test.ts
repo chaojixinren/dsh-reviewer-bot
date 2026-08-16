@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import {
   anchorAt, anchorFallback, commitSha, findingId, ruleId,
 } from '@dshrb/review-core'
@@ -6,7 +7,7 @@ import type { Anchor, Finding, ReviewTarget } from '@dshrb/review-core'
 import { publishIdempotencyKey, runForgeConformance } from '@dshrb/forge'
 import type { ConformanceFactory } from '@dshrb/forge'
 import {
-  CAPABILITIES, GitHubApiError, applyPatch, createGitHubGateway,
+  CAPABILITIES, GitHubApiError, apply, applyPatch, createGitHubGateway,
   extractIdempotencyKey, mapPermission, parseHunks, stickyMarker,
 } from '../src/index.ts'
 import type { Config, FetchLike } from '../src/index.ts'
@@ -937,4 +938,54 @@ describe('forge conformance', () => {
   for (const testCase of cases) {
     it(`${testCase.group} · ${testCase.name}`, testCase.run)
   }
+})
+
+describe('apply token wiring', () => {
+  interface DshrbMock {
+    readonly get: () => { githubToken: string; gitlabToken: string; allowWrite: boolean }
+    readonly watch: () => () => void
+    readonly update: () => Promise<void>
+  }
+
+  function mount(githubToken: string) {
+    const calls: Array<{ authorization: string | undefined }> = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ authorization: (init?.headers as Record<string, string> | undefined)?.authorization })
+      return new Response(JSON.stringify({ permission: 'admin' }), { status: 200 })
+    }) as typeof fetch
+
+    const root = new Context()
+    const registered: Array<{ resolvePermission: (repo: string, login: string) => Promise<string> }> = []
+    const dshrb: DshrbMock = {
+      get: () => ({ githubToken, gitlabToken: '', allowWrite: false }),
+      watch: () => () => {},
+      update: async () => {},
+    }
+    root.provide('dshrb', dshrb)
+    root.provide('forges', { register: (gateway: unknown) => { registered.push(gateway as never) }, name: 'forges' })
+
+    apply(root, { token: 'legacy-token', baseUrl: 'https://api.github.com' })
+    return { calls, originalFetch, gateway: registered[0]! }
+  }
+
+  it('uses the shared config authoritatively so a Web UI clear is effective', async () => {
+    const { calls, originalFetch, gateway } = mount('')
+    try {
+      await gateway.resolvePermission('acme/widgets', 'alice')
+      expect(calls[0]?.authorization).toBe('Bearer ')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('uses the shared token when set', async () => {
+    const { calls, originalFetch, gateway } = mount('ghp_ui_token')
+    try {
+      await gateway.resolvePermission('acme/widgets', 'alice')
+      expect(calls[0]?.authorization).toBe('Bearer ghp_ui_token')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import {
   anchorAt, anchorFallback, changeRequestId, commitSha, findingId, ruleId,
 } from '@dshrb/review-core'
@@ -6,7 +7,7 @@ import type { Anchor, Finding, ReviewTarget } from '@dshrb/review-core'
 import { publishIdempotencyKey, runForgeConformance } from '@dshrb/forge'
 import type { ConformanceFactory } from '@dshrb/forge'
 import {
-  CAPABILITIES, GitLabApiError, applyPatch, createGitLabGateway,
+  CAPABILITIES, GitLabApiError, apply, applyPatch, createGitLabGateway,
   mapAccessLevel, normalizeMergeRequest, parseHunks, stickyMarker, verifyGitLabToken,
 } from '../src/index.ts'
 import type { Config, FetchLike } from '../src/index.ts'
@@ -740,4 +741,47 @@ describe('forge conformance', () => {
   for (const testCase of cases) {
     it(`${testCase.group} · ${testCase.name}`, testCase.run)
   }
+})
+
+describe('apply token wiring', () => {
+  function mount(gitlabToken: string) {
+    const calls: Array<{ privateToken: string | undefined }> = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ privateToken: (init?.headers as Record<string, string> | undefined)?.['PRIVATE-TOKEN'] })
+      return new Response('[]', { status: 200 })
+    }) as typeof fetch
+
+    const root = new Context()
+    const registered: Array<{ resolvePermission: (repo: string, login: string) => Promise<string> }> = []
+    root.provide('dshrb', {
+      get: () => ({ githubToken: '', gitlabToken, allowWrite: false }),
+      watch: () => () => {},
+      update: async () => {},
+    })
+    root.provide('forges', { register: (gateway: unknown) => { registered.push(gateway as never) }, name: 'forges' })
+
+    apply(root, { token: 'legacy-token', baseUrl: 'https://gitlab.com/api/v4' })
+    return { calls, originalFetch, gateway: registered[0]! }
+  }
+
+  it('uses the shared config authoritatively so a Web UI clear is effective', async () => {
+    const { calls, originalFetch, gateway } = mount('')
+    try {
+      await gateway.resolvePermission('acme/widgets', 'alice')
+      expect(calls[0]?.privateToken).toBe('')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('uses the shared token when set', async () => {
+    const { calls, originalFetch, gateway } = mount('glpat_ui_token')
+    try {
+      await gateway.resolvePermission('acme/widgets', 'alice')
+      expect(calls[0]?.privateToken).toBe('glpat_ui_token')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

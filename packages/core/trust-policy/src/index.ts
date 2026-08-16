@@ -13,6 +13,7 @@
 import type { Capabilities, ReviewIntent, TrustLevel } from '@dshrb/review-core'
 import { NO_CAPABILITIES, capabilities, isSafeRelativePath, matchesGlob } from '@dshrb/review-core'
 import type { ForgePermission } from '@dshrb/forge'
+import type { DshrbConfigService } from '@dshrb/config'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision, ToolExecution, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import Schema from '@deepseek-ai/schemastery'
@@ -502,7 +503,12 @@ class TrustPolicyState implements TrustPolicy {
   #input: TrustInput | undefined
   #writeContext: WriteGuardContext | undefined
 
-  constructor(private readonly allowWrite: boolean, private readonly protectedPaths: readonly string[]) {}
+  /** Mutable so the Web UI toggle can take effect on the next run without a restart. */
+  allowWrite: boolean
+
+  constructor(allowWrite: boolean, private readonly protectedPaths: readonly string[]) {
+    this.allowWrite = allowWrite
+  }
 
   get input(): TrustInput | undefined {
     return this.#input
@@ -575,9 +581,22 @@ export function createTrustPolicy(config: Config): TrustPolicy {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const policy = createTrustPolicy(config)
+  const dshrb = ctx.get('dshrb') as DshrbConfigService | undefined
+  const policy = new TrustPolicyState(
+    dshrb === undefined ? config.allowWrite : dshrb.get().allowWrite,
+    config.protectedPaths,
+  )
   // Fiber-owned: the service unregisters when this plugin's fiber unloads.
   ctx.provide('trustPolicy', policy)
+
+  // Reactive allowWrite: a Web UI toggle change applies to the next review
+  // run without a profile restart. (Tokens are already re-read per request by
+  // the forge gateways; this closes the same gap for the write mode.)
+  if (dshrb !== undefined) {
+    ctx.effect(() => dshrb.watch((next) => {
+      policy.allowWrite = next.allowWrite
+    }))
+  }
 
   // A waterfall, not a listener: it must return a PreToolDecision and hand
   // unknown tools to next() so other plugins keep their say.

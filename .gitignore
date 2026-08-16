@@ -19,3 +19,6 @@ dist/
 # Linked git worktrees and the local pnpm store live inside the checkout.
 .worktrees/
 .pnpm-store/
+
+# Local npm cache (workspace-scoped cache used to avoid global EPERM).
+.npm-cache/
