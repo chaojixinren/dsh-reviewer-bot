@@ -34,6 +34,7 @@ import * as llmDeepseek from '@deepseek-ai/dsh-llm-deepseek'
 import credentialsLocal from '@deepseek-ai/dsh-credentials-local'
 import settingsFile from '@deepseek-ai/dsh-settings-file'
 import agentLoop from '@deepseek-ai/dsh-agent-loop'
+import { DockerSandboxProvider } from './docker-sandbox.js'
 import { UnavailableSandboxProvider } from './unavailable-sandbox.js'
 
 // @dshrb plugin chain, in the layer order documented by bundle/cordis.patch.yml.
@@ -73,6 +74,13 @@ export interface RuntimeBootstrapConfig {
   /** Validation command gate (exact argv arrays, never shell strings). */
   readonly testCommands?: readonly (readonly string[])[]
   readonly validationEnv?: readonly string[]
+  /**
+   * Digest-pinned isolation image for write-mode validation. When set, the
+   * standalone runtime mounts a `DockerSandboxProvider` (docker run) instead of
+   * the fail-closed `UnavailableSandboxProvider`; read-only reviews never
+   * confine a subprocess, so the image is only consulted in write mode.
+   */
+  readonly containerImage?: string
 }
 
 export interface BootstrappedRuntime {
@@ -128,7 +136,14 @@ export async function bootReviewRuntime(config: RuntimeBootstrapConfig): Promise
   await ctx.plugin(tools, {})
   await ctx.plugin(sandboxPolicy, { mode: sandboxMode, workspaceRoot })
   await ctx.plugin(fsSandbox, { cwd: workspaceRoot })
-  await ctx.plugin(UnavailableSandboxProvider)
+  // Write-mode validation confinement: a digest-pinned image upgrades the
+  // fail-closed provider to a real Docker sandbox; without one, confinement
+  // stays unavailable and any write-mode validation fails closed.
+  if (config.containerImage !== undefined) {
+    await ctx.plugin(DockerSandboxProvider, { image: config.containerImage })
+  } else {
+    await ctx.plugin(UnavailableSandboxProvider)
+  }
   await ctx.plugin(typertRegistry)
   await ctx.plugin(session)
   await ctx.plugin(agent)

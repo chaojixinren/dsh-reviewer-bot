@@ -64,6 +64,8 @@ jobs:
 2. `persist-credentials: false` —— 防止 token 落到 `.git/config` 被后续步骤读取
 3. `timeout-minutes` 比内部 watchdog 高几分钟 —— 留出写 outputs 的时间窗
 
+**写模式校验**（`@dsr fix` + `run-tests`）在 standalone Action 里需要 Docker 隔离：维护者提供 digest 锁定的 `container-image`（`ghcr.io/<owner>/<repo>@sha256:<digest>`，由 `.github/workflows/docker.yml` 产出），`@dshrb/runtime-bootstrap` 用 `DockerSandboxProvider` 把校验命令包进 `docker run`（JSON argv 直 exec，不过 shell）。runner 需有 Docker；只读评审不需要镜像。
+
 ## 模式 B：Daemon（差异化 B7）
 
 ```mermaid

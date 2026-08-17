@@ -1715,6 +1715,24 @@ export async function mutate(
   }
 }
 
+/**
+ * Merges the runner's own locator facts (`PATH`/`HOME`) into the allowlist-
+ * stripped validation env before spawning the confined argv. These are not
+ * secrets — they tell the confined program (e.g. `docker`, a native launcher)
+ * where to find its binary and config, which the env whitelist does not carry.
+ * Every other name keeps the whitelist guarantee (`buildValidationEnv`).
+ */
+export function mergeRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...env }
+  if (merged.PATH === undefined && process.env.PATH !== undefined) {
+    merged.PATH = process.env.PATH
+  }
+  if (merged.HOME === undefined && process.env.HOME !== undefined) {
+    merged.HOME = process.env.HOME
+  }
+  return merged
+}
+
 /** Production spawn binding for `StageDeps.runConfinedCommand`. */
 export function spawnConfined(
   confined: ConfinedArgv, cwd: string, env: NodeJS.ProcessEnv,
@@ -1730,7 +1748,7 @@ export function spawnConfined(
       const remaining = MAX_COMMAND_OUTPUT_BYTES - current.length
       return remaining <= 0 ? current : current + text.slice(0, remaining)
     }
-    const child = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(program, args, { cwd, env: mergeRunnerEnv(env), stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', (chunk) => { stdout = appendCapped(stdout, chunk) })

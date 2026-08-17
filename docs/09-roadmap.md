@@ -124,6 +124,7 @@ flowchart LR
 - [ ] 校验失败不产生 commit，且完整日志回帖
 - [ ] commit 前二次确认实际文件变更非空
 - [ ] 校验子进程 env 走白名单（断言 secret 不可见）
+- [ ] standalone Action 的 `@dsr fix` 校验在 digest 锁定的 `container-image` 下由 Docker 沙箱真正执行；无镜像 / 未锁定 digest 时 fail-closed（#66）
 
 ### M4 生态与规模化
 
@@ -173,7 +174,7 @@ flowchart LR
 
 - **GitHub Actions JavaScript 运行时**（#2）：`using: 'node24'` 已 GA。官方 metadata-syntax 文档列出 `node20`（Node v20）与 `node24`（Node v24）两种 JavaScript 运行时，`action.yml` 保持 `using: 'node24'` 即可，无需回退 node20。
 - **DSH 配置层环境变量**（#2）：`cordis.patch.yml` 的配置值**不做 `$VAR` 展开**。注入环境变量要用 `!!js` 表达式（loader 在插件激活时求值，作用域含 `process` / `ctx`），例如 `token: !!js process.env.FORGE_TOKEN`；裸 `$FORGE_TOKEN` 会作为字面量字符串传给插件。`bundle/cordis.patch.yml` 已按此修正。
-- **写模式隔离落点**（#1）：`ctx.sandbox` 不是隔离后端，只是 `confine(argv, policy)` 的 argv 包装器；策略单一归属 `ctx.sandboxPolicy.resolve()`，文件写入落界走 `ctx.fs.writeText(..., sandboxPolicy)`，「无网络」不在 `SandboxMode` 词汇表内，可选 Docker 属 driver 层。详见 docs/05 与 docs/03。
+- **写模式隔离落点**（#1）：`ctx.sandbox` 不是隔离后端，只是 `confine(argv, policy)` 的 argv 包装器；策略单一归属 `ctx.sandboxPolicy.resolve()`，文件写入落界走 `ctx.fs.writeText(..., sandboxPolicy)`，「无网络」不在 `SandboxMode` 词汇表内。standalone Action 的写模式校验已由 `DockerSandboxProvider` + digest 锁定的 `container-image` 交付（#66）：校验命令包成 `docker run <image> <argv...>`（JSON argv 直 exec，不过 shell），无镜像时仍 fail-closed。详见 docs/05 与 docs/03。
 
 ## 当前状态
 
