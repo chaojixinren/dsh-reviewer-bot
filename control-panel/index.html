@@ -19,6 +19,11 @@
     --seg-bg: rgba(255, 255, 255, 0.55);
     --logo-op: .6;
     --logo-tint: none;
+    --sev-blocker: #e5484d;
+    --sev-major: #f0883e;
+    --sev-minor: #d4a72c;
+    --sev-nit: #3b82f6;
+    --sev-info: #8b949e;
   }
   .theme-dark {
     --bg: #0d1117;
@@ -33,6 +38,11 @@
     --seg-bg: rgba(22, 27, 34, 0.55);
     --logo-op: .4;
     --logo-tint: brightness(1.15);
+    --sev-blocker: #ff6b6b;
+    --sev-major: #ffa657;
+    --sev-minor: #e3b341;
+    --sev-nit: #58a6ff;
+    --sev-info: #8b949e;
   }
   * { box-sizing: border-box; }
   body {
@@ -149,6 +159,36 @@
   }
   .status.pulse { opacity: 1; }
   .note { color: var(--muted); }
+
+  /* 数据面板 */
+  .dsub { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 2px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0 4px; }
+  .kpi { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+  .kpi-val { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .kpi-lbl { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .bars { margin: 8px 0 2px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .bar-lbl { width: 56px; flex: none; font-size: 12px; color: var(--muted); }
+  .bar-track { flex: 1; height: 12px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+  .bar-val { width: 92px; flex: none; text-align: right; font-size: 12px; color: var(--text); }
+  .data-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12.5px; }
+  .data-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .data-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .data-table tr:last-child td { border-bottom: 0; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; }
+  .fpath { color: var(--muted); font-size: 11.5px; }
+  .data-ctrls { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 2px; }
+  .btn { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--seg-bg); color: var(--text); border-radius: 8px; padding: 7px 12px; transition: all .15s ease; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .data-io { margin: 10px 0 2px; }
+  .data-io textarea { width: 100%; min-height: 92px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+  .data-io textarea:focus { outline: 2px solid rgba(59,130,246,.25); border-color: var(--accent); }
+  .data-msg { font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .data-msg.ok { color: #1a7f37; }
+  .data-msg.err { color: #e5484d; }
+  @media (max-width: 540px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>
@@ -175,6 +215,42 @@
     <section class="card">
       <h2 class="sec-title" data-i18n="secSettings">设置</h2>
       <div id="settings"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="sec-title" data-i18n="secData">数据面板</h2>
+      <p class="row-desc dsdesc" data-i18n="dataDesc">汇总 dsh-reviewer-bot 的评审运行数据（基于 result-json 的真实字段），可在下方粘贴真实的 result-json 或 result-json 数组刷新。</p>
+
+      <div class="kpi-grid" id="kpiGrid"></div>
+
+      <div class="dsub" data-i18n="dataSeverityDist">严重程度分布</div>
+      <div class="bars" id="severityBars"></div>
+
+      <div class="dsub" data-i18n="dataRecent">最近发现</div>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th data-i18n="dataColSeverity">严重程度</th>
+              <th data-i18n="dataColTitle">标题</th>
+              <th data-i18n="dataColPath">位置</th>
+            </tr>
+          </thead>
+          <tbody id="findingsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="data-ctrls">
+        <button class="btn primary" id="btnLoadSample" data-i18n="dataLoadSample">载入示例</button>
+        <button class="btn" id="btnClear" data-i18n="dataClear">清空</button>
+      </div>
+      <div class="data-io">
+        <textarea id="dataInput" data-i18n-ph="dataInputPh" placeholder="粘贴 result-json 或 result-json 数组…"></textarea>
+        <div class="data-ctrls">
+          <button class="btn" id="btnImport" data-i18n="dataImport">导入数据</button>
+        </div>
+        <div class="data-msg" id="dataMsg"></div>
+      </div>
     </section>
 
     <footer class="ft">
@@ -224,6 +300,29 @@
       modeDefault: "LOGO", modeSolid: "纯色",
       saved: "已保存 · 本地",
       footerNote: "仿 Cursor Bugbot 的控制面板原型，设置保存在浏览器本地。",
+      secData: "数据面板",
+      dataDesc: "汇总 dsh-reviewer-bot 的评审运行数据（基于 result-json 的真实字段），可在下方粘贴真实的 result-json 或 result-json 数组刷新。",
+      dataSeverityDist: "严重程度分布",
+      dataRecent: "最近发现",
+      dataColSeverity: "严重程度",
+      dataColTitle: "标题",
+      dataColPath: "位置",
+      dataLoadSample: "载入示例",
+      dataClear: "清空",
+      dataImport: "导入数据",
+      dataInputPh: "粘贴 result-json 或 result-json 数组…",
+      kpiReviews: "评审数",
+      kpiFindings: "发现数",
+      kpiBlockers: "阻断项",
+      kpiAvgMs: "平均耗时",
+      dataEmpty: "暂无数据。点击「载入示例」或将 result-json 粘贴到下方后「导入数据」。",
+      dataImportOk: "已解析 N 条评审、M 个发现。",
+      dataImportErr: "无法解析：请提供合法的 result-json 对象或数组。",
+      sev_blocker: "阻断",
+      sev_major: "严重",
+      sev_minor: "次要",
+      sev_nit: "提示",
+      sev_info: "信息",
     },
     en: {
       appTitle: "DSH Reviewer Bot",
@@ -261,6 +360,29 @@
       modeDefault: "LOGO", modeSolid: "Solid",
       saved: "Saved · Local",
       footerNote: "A Cursor Bugbot-style control panel prototype. Settings are stored locally in your browser.",
+      secData: "Data Panel",
+      dataDesc: "Aggregates dsh-reviewer-bot review runs (grounded in real result-json fields). Paste a real result-json or an array of them below to refresh.",
+      dataSeverityDist: "Severity distribution",
+      dataRecent: "Recent findings",
+      dataColSeverity: "Severity",
+      dataColTitle: "Title",
+      dataColPath: "Location",
+      dataLoadSample: "Load sample",
+      dataClear: "Clear",
+      dataImport: "Import data",
+      dataInputPh: "Paste a result-json or an array of result-jsons…",
+      kpiReviews: "Reviews",
+      kpiFindings: "Findings",
+      kpiBlockers: "Blockers",
+      kpiAvgMs: "Avg time",
+      dataEmpty: "No data yet. Click \"Load sample\" or paste a result-json below and click \"Import data\".",
+      dataImportOk: "Parsed N reviews and M findings.",
+      dataImportErr: "Could not parse: provide a valid result-json object or array.",
+      sev_blocker: "Blocker",
+      sev_major: "Major",
+      sev_minor: "Minor",
+      sev_nit: "Nit",
+      sev_info: "Info",
     },
   };
 
@@ -312,6 +434,7 @@
       b.classList.toggle("active", b.getAttribute("data-lang") === dshSettings.translation));
     document.querySelectorAll("#settings .lang-seg:not(.mode-seg) button").forEach((b) =>
       b.classList.toggle("active", b.getAttribute("data-lang") === dshSettings.translation));
+    if (document.getElementById("kpiGrid")) renderData();
   }
 
   function setTranslation(lang) {
@@ -444,9 +567,165 @@
   document.querySelectorAll("#langSwitch button").forEach((b) =>
     b.addEventListener("click", () => setTranslation(b.getAttribute("data-lang"))));
 
+  // ---- 数据面板：基于 result-json 真实字段汇总 ----
+  const SEVERITY_ORDER = ["blocker", "major", "minor", "nit", "info"];
+  const LS_DATA = "dsh.dataRuns";
+
+  // 示例数据（结构与 ReviewResult 一致：verdict / findings / suppressed）
+  const SAMPLE_RUNS = [
+    {
+      requestId: "req-1001", verdict: { status: "success", findingsCount: 3, blockersCount: 1, durationMs: 18420 },
+      operation: "review", trust: "trusted",
+      findings: [
+        { findingId: "f1", severity: "blocker", title: "未校验外部用户输入即进入 SQL 拼接", anchor: { path: "src/db/query.ts", line: 42, side: "right", anchored: true }, ruleId: "sql-injection", failureScenario: "攻击者构造 ' OR 1=1 -- 绕过鉴权" },
+        { findingId: "f2", severity: "major", title: "缺失鉴权守卫导致越权访问", anchor: { path: "src/api/users.ts", line: 17, side: "right", anchored: true }, ruleId: "authz-missing" },
+        { findingId: "f3", severity: "nit", title: "捕获异常后未记录日志", anchor: { path: "src/util/retry.ts", line: 8, side: "right", anchored: false, fallbackReason: "行不在 diff hunk 内" }, ruleId: "log-on-catch" },
+      ],
+    },
+    {
+      requestId: "req-1002", verdict: { status: "success", findingsCount: 2, blockersCount: 0, durationMs: 12090 },
+      operation: "review", trust: "trusted",
+      findings: [
+        { findingId: "f4", severity: "major", title: "并发写共享缓存未加锁", anchor: { path: "src/cache/store.ts", line: 55, side: "right", anchored: true }, ruleId: "race-cache" },
+        { findingId: "f5", severity: "minor", title: "魔法数字应提取为常量", anchor: { path: "src/config.ts", line: 23, side: "right", anchored: true }, ruleId: "magic-number" },
+      ],
+      suppressed: [
+        { findingId: "f6", severity: "info", title: "可改用可选链简化", anchor: { path: "src/util/get.ts", line: 9, side: "right", anchored: true }, ruleId: "optional-chain", suppressedReason: "maintainer-accepted exception #77" },
+      ],
+    },
+    {
+      requestId: "req-1003", verdict: { status: "neutral", findingsCount: 0, blockersCount: 0, durationMs: 8640 },
+      operation: "review", trust: "trusted", findings: [],
+    },
+  ];
+
+  let dataRuns = [];
+  try { dataRuns = load(LS_DATA, []) || []; } catch { dataRuns = []; }
+
+  function normalizeRun(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const v = raw.verdict || {};
+    return {
+      requestId: raw.requestId || "unknown",
+      operation: raw.operation || "-",
+      status: v.status || "unknown",
+      findingsCount: typeof v.findingsCount === "number" ? v.findingsCount : (raw.findings ? raw.findings.length : 0),
+      blockersCount: typeof v.blockersCount === "number" ? v.blockersCount : 0,
+      durationMs: typeof v.durationMs === "number" ? v.durationMs : 0,
+      findings: Array.isArray(raw.findings) ? raw.findings : [],
+      suppressed: Array.isArray(raw.suppressed) ? raw.suppressed : [],
+    };
+  }
+
+  function fmtMs(ms) {
+    if (ms >= 1000) return (ms / 1000).toFixed(1) + "s";
+    return ms + "ms";
+  }
+
+  function renderData() {
+    const grid = document.getElementById("kpiGrid");
+    const bars = document.getElementById("severityBars");
+    const body = document.getElementById("findingsBody");
+    const msg = document.getElementById("dataMsg");
+    msg.className = "data-msg";
+    msg.textContent = "";
+
+    if (!dataRuns.length) {
+      grid.innerHTML = '<div class="kpi" style="grid-column:1/-1"><div class="kpi-lbl">' + t("dataEmpty") + "</div></div>";
+      bars.innerHTML = "";
+      body.innerHTML = "";
+      return;
+    }
+
+    const reviews = dataRuns.length;
+    let totalFindings = 0, totalBlockers = 0, totalMs = 0;
+    const sevCount = { blocker: 0, major: 0, minor: 0, nit: 0, info: 0 };
+    const allFindings = [];
+
+    dataRuns.forEach((r) => {
+      const n = normalizeRun(r) || r;
+      totalFindings += (n.findings ? n.findings.length : 0) + (n.suppressed ? n.suppressed.length : 0);
+      totalBlockers += n.blockersCount || 0;
+      totalMs += n.durationMs || 0;
+      (n.findings || []).forEach((f) => {
+        if (sevCount[f.severity] !== undefined) sevCount[f.severity]++;
+        allFindings.push(f);
+      });
+      (n.suppressed || []).forEach((f) => {
+        if (sevCount[f.severity] !== undefined) sevCount[f.severity]++;
+      });
+    });
+    const avgMs = reviews ? Math.round(totalMs / reviews) : 0;
+
+    grid.innerHTML =
+      kpi(totalFindings, t("kpiFindings")) +
+      kpi(totalBlockers, t("kpiBlockers")) +
+      kpi(reviews, t("kpiReviews")) +
+      kpi(fmtMs(avgMs), t("kpiAvgMs"));
+
+    const maxCount = Math.max(1, ...SEVERITY_ORDER.map((s) => sevCount[s]));
+    bars.innerHTML = SEVERITY_ORDER.map((s) => {
+      const c = sevCount[s];
+      const pct = Math.round((c / maxCount) * 100);
+      return '<div class="bar-row"><div class="bar-lbl">' + t("sev_" + s) + '</div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + "%;background:var(--sev-" + s + ')"></div></div>' +
+        '<div class="bar-val">' + c + "</div></div>";
+    }).join("");
+
+    const recent = allFindings.slice(0, 12);
+    body.innerHTML = recent.map((f) => {
+      const a = f.anchor || {};
+      const loc = (a.path || "-") + (a.line ? ":" + a.line : "");
+      return "<tr><td><span class=\"badge\" style=\"background:var(--sev-" + f.severity + '">' + t("sev_" + f.severity) + "</span></td>" +
+        "<td>" + esc(f.title || "-") + (f.ruleId ? ' <span class="fpath">· ' + esc(f.ruleId) + "</span>" : "") + "</td>" +
+        '<td class="fpath">' + esc(loc) + "</td></tr>";
+    }).join("") || '<tr><td colspan="3" class="fpath">' + t("dataEmpty") + "</td></tr>";
+  }
+
+  function kpi(val, lbl) {
+    return '<div class="kpi"><div class="kpi-val">' + esc(val) + '</div><div class="kpi-lbl">' + esc(lbl) + "</div></div>";
+  }
+
+  function setData(runs) {
+    dataRuns = runs;
+    save(LS_DATA, runs);
+    renderData();
+  }
+
+  document.getElementById("btnLoadSample").addEventListener("click", () => {
+    setData(SAMPLE_RUNS.slice());
+    const msg = document.getElementById("dataMsg");
+    msg.className = "data-msg ok";
+    msg.textContent = t("dataImportOk").replace("N", SAMPLE_RUNS.length).replace("M", 6);
+    flashSaved();
+  });
+  document.getElementById("btnClear").addEventListener("click", () => {
+    setData([]);
+    document.getElementById("dataInput").value = "";
+    const msg = document.getElementById("dataMsg");
+    msg.className = "data-msg"; msg.textContent = "";
+    flashSaved();
+  });
+  document.getElementById("btnImport").addEventListener("click", () => {
+    const ta = document.getElementById("dataInput");
+    const msg = document.getElementById("dataMsg");
+    let parsed;
+    try { parsed = JSON.parse(ta.value); } catch { parsed = null; }
+    if (!parsed) { msg.className = "data-msg err"; msg.textContent = t("dataImportErr"); return; }
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const ok = arr.filter((r) => normalizeRun(r));
+    if (!ok.length) { msg.className = "data-msg err"; msg.textContent = t("dataImportErr"); return; }
+    let fc = 0; ok.forEach((r) => { const n = normalizeRun(r); fc += (n.findings ? n.findings.length : 0) + (n.suppressed ? n.suppressed.length : 0); });
+    setData(ok);
+    msg.className = "data-msg ok";
+    msg.textContent = t("dataImportOk").replace("N", ok.length).replace("M", fc);
+    flashSaved();
+  });
+
   buildAutomations();
   buildSettings();
   applyLanguage();
+  renderData();
   if ((dshSettings.theme || "light") === "dark") document.documentElement.classList.add("theme-dark");
   document.body.classList.add("mode-" + (dshSettings.mode || "default"));
 </script>
