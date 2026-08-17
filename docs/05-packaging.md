@@ -51,11 +51,21 @@ DSH 运行时服务（service ← 提供者）
 
 ## 无法打包的原生依赖与 fail-closed 沙箱
 
-DSH 本地沙箱 `dsh-sandbox-local` 用原生 launcher 包裹子进程（Linux 的 `bwrap`/Landlock、Windows 的 restricted-token runner），依赖 `node-addon-landlock-run` 与 `koffi`，**无法 esbuild 折进单文件**。但只读评审 / 诊断从不 confine 子进程，所以 standalone bundle 挂一个 fail-closed 的 `UnavailableSandboxProvider`：
+DSH 本地沙箱 `dsh-sandbox-local` 用原生 launcher 包裹子进程（Linux 的 `bwrap`/Landlock、Windows 的 restricted-token runner），依赖 `node-addon-landlock-run` 与 `koffi`，**无法 esbuild 折进单文件**。但只读评审 / 诊断从不 confine 子进程，所以 standalone bundle 缺省挂一个 fail-closed 的 `UnavailableSandboxProvider`：
 
 - 满足 `review-runtime` 对 `sandbox` 服务的 `inject` 依赖；
-- 一旦被调用（写模式校验）就抛 `SandboxUnavailableError` —— 与 DSH「拒绝裸跑命令」的语义一致；
-- 写模式校验因此属于 standalone Action 的**未交付能力**，需要 Docker / 原生 sandbox（docs/09 风险登记）。
+- 一旦被调用（写模式校验）就抛 `SandboxUnavailableError` —— 与 DSH「拒绝裸跑命令」的语义一致。
+
+**写模式校验的交付**：当 driver 提供了 digest 锁定的 `container-image` 时，standalone bundle 改挂 `DockerSandboxProvider`（`packages/core/runtime-bootstrap/src/docker-sandbox.ts`）。它把校验命令重写为
+
+```
+docker run --rm --init -w <workspaceRoot> -v <workspaceRoot>:<workspaceRoot>[:ro] <image> <argv...>
+```
+
+- 校验命令仍是**JSON argv 直 exec**，`docker run` 后接的 argv 不经 shell，保住 docs/09 M3「不过 shell」红线；
+- 隔离是**文件效应级**的：容器自身文件系统 ephemeral，只有 `workspaceRoot` 从宿主 bind-mount（`workspace-write` 可写、`read-only` 只读）；网络不在 `SandboxMode` 词汇表内，不在此处限制；
+- 镜像必须按 digest 锁定（`@sha256:<64 hex>`），否则 `confine` fail-closed；Docker 守护进程不可用 / 镜像拉取失败时，`runnerFailureRules` 把失败归类为 runner-failed（命令从未运行），校验失败不 commit；
+- 隔离镜像由 `docker/Dockerfile` 构建、`.github/workflows/docker.yml` 推送到 GHCR（`ghcr.io/<owner>/<repo>`）。
 
 `dsh-fs-sandbox` → `dsh-fs-local` 对 `koffi` 是**惰性** `import("koffi")` 且仅 Windows 原子替换路径触发，Linux Action 上永不加载；打包时把 `koffi` 标 `external`，动态 import 原样保留。
 

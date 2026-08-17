@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { forgeId } from '@dshrb/review-core'
+import { DockerSandboxProvider } from '../src/docker-sandbox.ts'
+import { UnavailableSandboxProvider } from '../src/unavailable-sandbox.ts'
 import { bootReviewRuntime } from '../src/index.ts'
 
 /**
@@ -71,6 +73,24 @@ describe('runtime bootstrap', () => {
       expect(withToken.ctx.forges.resolve(forgeId('github'))).toBeDefined()
     } finally {
       await withToken.dispose()
+    }
+  })
+
+  it('mounts the fail-closed sandbox provider by default', async () => {
+    const runtime = await bootReviewRuntime({})
+    try {
+      expect(runtime.ctx.sandbox).toBeInstanceOf(UnavailableSandboxProvider)
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
+  it('mounts the Docker sandbox provider when a container image is supplied', async () => {
+    const runtime = await bootReviewRuntime({ containerImage: `ghcr.io/owner/repo@sha256:${'a'.repeat(64)}` })
+    try {
+      expect(runtime.ctx.sandbox).toBeInstanceOf(DockerSandboxProvider)
+    } finally {
+      await runtime.dispose()
     }
   })
 
