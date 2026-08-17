@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title data-i18n="appTitle">DSH 审查机器人</title>
+<style>
+  :root {
+    --bg: #eef2f7;
+    --card: #ffffff;
+    --border: #e3e8ef;
+    --text: #1f2328;
+    --muted: #3d444d;
+    --accent: #3b82f6;
+    --accent-soft: rgba(59, 130, 246, .12);
+    --track: #d0d7de;
+    --shadow: 0 1px 2px rgba(27, 31, 36, 0.04), 0 6px 20px rgba(59, 130, 246, .10);
+    --panel-bg: rgba(255, 255, 255, 0.42);
+    --seg-bg: rgba(255, 255, 255, 0.55);
+    --logo-op: .6;
+    --logo-tint: none;
+  }
+  .theme-dark {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #9aa4b2;
+    --accent: #58a6ff;
+    --track: #30363d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.5);
+    --panel-bg: rgba(22, 27, 34, 0.58);
+    --seg-bg: rgba(22, 27, 34, 0.55);
+    --logo-op: .4;
+    --logo-tint: brightness(1.15);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    transition: background .2s ease, color .2s ease;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: url("logo.png") center / min(72vmin, 560px) no-repeat;
+    opacity: var(--logo-op);
+    filter: var(--logo-tint);
+    pointer-events: none;
+    z-index: 0;
+    display: none;
+  }
+  body.mode-default::before { display: block; }
+  /* 暗色模式：换用去白底的 logo（白底扣掉变成黑色透出深色背景），且无需亮度提升 */
+  .theme-dark body::before {
+    background-image: url("logo_nobg.png");
+    filter: none;
+  }
+  .app { max-width: 720px; margin: 40px auto; padding: 0 16px; position: relative; z-index: 1; }
+  .hd {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; margin-bottom: 18px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 80px; height: 80px;
+    border-radius: 14px;
+    flex: none;
+    background: url("logo.png") center / contain no-repeat;
+  }
+  /* 暗色模式：换用去白底的 logo，白底透出深色背景（"变成黑色"） */
+  .theme-dark .logo {
+    background-image: url("logo_nobg.png");
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: -0.01em; color: #0f172a; }
+  .theme-dark h1 { color: #ffffff; }
+  .sub { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+
+  .lang-switch, .lang-seg {
+    display: inline-flex; background: var(--seg-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 2px; flex: none;
+  }
+  .lang-switch button, .lang-seg button {
+    border: 0; background: transparent; cursor: pointer;
+    font: inherit; color: var(--muted); padding: 5px 12px; border-radius: 6px;
+    transition: all .15s ease;
+  }
+  .lang-switch button.active, .lang-seg button.active {
+    background: var(--card); color: var(--text); box-shadow: var(--shadow); font-weight: 600;
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 8px 20px; margin-bottom: 16px; box-shadow: var(--shadow);
+  }
+  /* 默认模式：半透明面板 + 背景大 logo */
+  body.mode-default .hd,
+  body.mode-default .card {
+    background: var(--panel-bg);
+    backdrop-filter: blur(2px);
+  }
+  .sec-title {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 650; margin: 16px 0 4px;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row-title { font-weight: 600; }
+  .row-desc { color: var(--muted); font-size: 12.5px; margin-top: 2px; max-width: 460px; }
+  .row-ctrl { flex: none; }
+
+  /* iOS-style toggle */
+  .switch { position: relative; display: inline-block; width: 42px; height: 24px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: var(--track); border-radius: 999px;
+    transition: background .18s ease; cursor: pointer;
+  }
+  .slider::before {
+    content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: transform .18s ease; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(18px); }
+
+  .sel, .inp {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 150px;
+  }
+  .inp.num { min-width: 90px; }
+  .sel:focus, .inp:focus { outline: 2px solid rgba(59,130,246,.25); border-color: var(--accent); }
+
+  .ft { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin-top: 4px; padding: 0 4px; }
+  .status {
+    color: #1a7f37; font-weight: 600; opacity: .55; transition: opacity .2s ease;
+  }
+  .status.pulse { opacity: 1; }
+  .note { color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="hd">
+      <div class="brand">
+        <div class="logo" role="img" aria-label="DSH"></div>
+        <div>
+          <h1 data-i18n="appTitle">DSH 审查机器人</h1>
+          <p class="sub" data-i18n="appSubtitle">代码审查 · CI 诊断 · 受控修复</p>
+        </div>
+      </div>
+      <div class="lang-switch" id="langSwitch" title="dsh 的翻译设置">
+        <button data-lang="zh" data-i18n="langZh">中文</button>
+        <button data-lang="en" data-i18n="langEn">English</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2 class="sec-title" data-i18n="secAutomations">自动化</h2>
+      <div id="automations"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="sec-title" data-i18n="secSettings">设置</h2>
+      <div id="settings"></div>
+    </section>
+
+    <footer class="ft">
+      <span id="status" class="status" data-i18n="saved">已保存 · 本地</span>
+      <span class="note" data-i18n="footerNote">仿 Cursor Bugbot 的控制面板原型，设置保存在浏览器本地。</span>
+    </footer>
+  </div>
+
+<script>
+  "use strict";
+
+  // ---- i18n 字典（zh / en）----
+  const i18n = {
+    zh: {
+      appTitle: "DSH 审查机器人",
+      appSubtitle: "代码审查 · CI 诊断 · 受控修复",
+      langZh: "中文", langEn: "English",
+      secAutomations: "自动化",
+      secSettings: "设置",
+      auto_review: "代码审查",
+      auto_review_desc: "对每个 Pull Request 自动运行 @dsr review。",
+      auto_diagnose: "CI 诊断",
+      auto_diagnose_desc: "CI 失败时自动运行 @dsr diagnose 定位根因。",
+      auto_fix: "受控修复",
+      auto_fix_desc: "允许 @dsr fix 提交受隔离沙箱保护的修补。",
+      auto_rules: "规则检查",
+      auto_rules_desc: "依据已加载的规则包做合规性检查。",
+      set_minSeverity: "最低严重级别",
+      set_minSeverity_desc: "低于该级别的发现不会发布到评审中。",
+      set_allowWrite: "允许写入",
+      set_allowWrite_desc: "开启后 @dsr fix 可写回仓库（仍需相应权限）。",
+      set_testCommands: "测试命令",
+      set_testCommands_desc: "写入模式下 @dsr fix 应用补丁后运行的校验命令（JSON 数组的 argv 数组，不展开 shell）。",
+      set_testCommands_ph: "例如 [[\"npm\",\"ci\"],[\"npm\",\"test\"]]",
+      set_rulePacks: "规则包",
+      set_rulePacks_desc: "额外加载的规则包包名（JSON 数组）。",
+      set_rulePacks_ph: "例如 [\"team-rules\"]",
+      set_timeoutMinutes: "超时分钟",
+      set_timeoutMinutes_desc: "内部看门狗预算；建议 job 级超时比它高几分钟以便超时后仍能收尾。",
+      set_translation: "翻译设置",
+      set_translation_desc: "dsh 的翻译设置：控制面板据此在中文 / 英文间切换。",
+      set_theme: "主题",
+      set_theme_desc: "亮色：浅色背景 + 半透明面板，露出彩色 logo。暗色：深色背景 + 半透明深色面板。",
+      themeLight: "亮色", themeDark: "暗色",
+      set_mode: "面板模式",
+      set_mode_desc: "LOGO：半透明面板 + 背景大 logo。纯色：不透明面板，无背景 logo。",
+      modeDefault: "LOGO", modeSolid: "纯色",
+      saved: "已保存 · 本地",
+      footerNote: "仿 Cursor Bugbot 的控制面板原型，设置保存在浏览器本地。",
+    },
+    en: {
+      appTitle: "DSH Reviewer Bot",
+      appSubtitle: "Code review · CI diagnosis · guarded fixes",
+      langZh: "中文", langEn: "English",
+      secAutomations: "Automations",
+      secSettings: "Settings",
+      auto_review: "Code Review",
+      auto_review_desc: "Automatically run @dsr review on every pull request.",
+      auto_diagnose: "CI Diagnostics",
+      auto_diagnose_desc: "Automatically runs @dsr diagnose to find root causes when CI fails.",
+      auto_fix: "Sandboxed Fixes",
+      auto_fix_desc: "Allow @dsr fix to commit sandbox-isolated patches.",
+      auto_rules: "Rules Checking",
+      auto_rules_desc: "Run compliance checks against loaded rule packs.",
+      set_minSeverity: "Minimum severity",
+      set_minSeverity_desc: "Findings below this severity are not published.",
+      set_allowWrite: "Allow writes",
+      set_allowWrite_desc: "When enabled, @dsr fix may write back to the repository (subject to permissions).",
+      set_testCommands: "Test commands",
+      set_testCommands_desc: "Validation commands run after @dsr fix applies patches in write mode (JSON array of argv arrays; not shell-expanded).",
+      set_testCommands_ph: "e.g. [[\"npm\",\"ci\"],[\"npm\",\"test\"]]",
+      set_rulePacks: "Rule packs",
+      set_rulePacks_desc: "Additional rule pack package names (JSON array).",
+      set_rulePacks_ph: "e.g. [\"team-rules\"]",
+      set_timeoutMinutes: "Timeout (minutes)",
+      set_timeoutMinutes_desc: "Internal watchdog budget; keep the job-level timeout a few minutes above this so it can still finalize on timeout.",
+      set_translation: "Translation",
+      set_translation_desc: "dsh's translation setting: the panel follows it to switch between Chinese and English.",
+      set_theme: "Theme",
+      set_theme_desc: "Light: light background with a translucent panel, the colored logo shows through. Dark: dark background with a translucent dark panel.",
+      themeLight: "Light", themeDark: "Dark",
+      set_mode: "Panel mode",
+      set_mode_desc: "LOGO: translucent panel with a logo backdrop. Solid: opaque panel, no logo backdrop.",
+      modeDefault: "LOGO", modeSolid: "Solid",
+      saved: "Saved · Local",
+      footerNote: "A Cursor Bugbot-style control panel prototype. Settings are stored locally in your browser.",
+    },
+  };
+
+  const LS = { translation: "dsh.translation", automations: "dsh.automations", settings: "dsh.settings" };
+  const load = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+  // dshSettings —— translation 即 "dsh 的翻译设置"，控制面板语言跟随它
+  const dshSettings = {
+    translation: localStorage.getItem("dsh.translation") || "zh",
+    automations: load(LS.automations, { review: true, diagnose: false, fix: false, rules: true }),
+    settings: load(LS.settings, { minSeverity: "minor", allowWrite: false, testCommands: "", rulePacks: "", timeoutMinutes: 25 }),
+    theme: localStorage.getItem("dsh.theme") || "light",
+    mode: localStorage.getItem("dsh.panelMode") || "default",
+  };
+
+  const automations = [
+    { key: "review",   title: "auto_review",     desc: "auto_review_desc" },
+    { key: "diagnose", title: "auto_diagnose",   desc: "auto_diagnose_desc" },
+    { key: "fix",      title: "auto_fix",        desc: "auto_fix_desc" },
+    { key: "rules",    title: "auto_rules",      desc: "auto_rules_desc" },
+  ];
+
+  const settings = [
+    { type: "select", key: "minSeverity", title: "set_minSeverity", desc: "set_minSeverity_desc", options: ["blocker", "major", "minor", "nit", "info"] },
+    { type: "toggle", key: "allowWrite",  title: "set_allowWrite",  desc: "set_allowWrite_desc" },
+    { type: "text",   key: "testCommands", title: "set_testCommands", desc: "set_testCommands_desc", ph: "set_testCommands_ph" },
+    { type: "text",   key: "rulePacks",   title: "set_rulePacks",   desc: "set_rulePacks_desc", ph: "set_rulePacks_ph" },
+    { type: "number", key: "timeoutMinutes", title: "set_timeoutMinutes", desc: "set_timeoutMinutes_desc", min: 1, max: 360, step: 1 },
+    { type: "seg",    key: "mode",        title: "set_mode",        desc: "set_mode_desc", options: [
+        { value: "default", labelKey: "modeDefault" }, { value: "solid", labelKey: "modeSolid" } ] },
+    { type: "seg",    key: "theme",       title: "set_theme",       desc: "set_theme_desc", options: [
+        { value: "light", labelKey: "themeLight" }, { value: "dark", labelKey: "themeDark" } ] },
+  ];
+
+  const t = (k) => (i18n[dshSettings.translation] && i18n[dshSettings.translation][k]) || i18n.zh[k] || k;
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  function applyLanguage() {
+    document.documentElement.lang = dshSettings.translation === "zh" ? "zh-CN" : "en";
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const k = el.getAttribute("data-i18n");
+      if (k) el.textContent = t(k);
+    });
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+      el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph")));
+    });
+    document.querySelectorAll("#langSwitch button").forEach((b) =>
+      b.classList.toggle("active", b.getAttribute("data-lang") === dshSettings.translation));
+    document.querySelectorAll("#settings .lang-seg:not(.mode-seg) button").forEach((b) =>
+      b.classList.toggle("active", b.getAttribute("data-lang") === dshSettings.translation));
+  }
+
+  function setTranslation(lang) {
+    if (lang === dshSettings.translation) return;
+    dshSettings.translation = lang;
+    localStorage.setItem("dsh.translation", lang); // 持久化 dsh 的翻译设置
+    applyLanguage();
+    flashSaved();
+  }
+
+  function setTheme(theme) {
+    if (theme === dshSettings.theme) return;
+    dshSettings.theme = theme;
+    localStorage.setItem("dsh.theme", theme);
+    document.documentElement.classList.toggle("theme-dark", theme === "dark");
+    document.querySelectorAll("#settings .mode-seg button").forEach((b) =>
+      b.classList.toggle("active", b.getAttribute("data-theme") === theme));
+    flashSaved();
+  }
+
+  function setMode(mode) {
+    if (mode === dshSettings.mode) return;
+    dshSettings.mode = mode;
+    localStorage.setItem("dsh.panelMode", mode);
+    document.body.classList.remove("mode-default", "mode-solid");
+    document.body.classList.add("mode-" + mode);
+    document.querySelectorAll("#settings .mode-seg button").forEach((b) =>
+      b.classList.toggle("active", b.getAttribute("data-mode") === mode));
+    flashSaved();
+  }
+
+  function flashSaved() {
+    const s = document.getElementById("status");
+    s.classList.add("pulse");
+    clearTimeout(flashSaved._t);
+    flashSaved._t = setTimeout(() => s.classList.remove("pulse"), 800);
+  }
+
+  function buildAutomations() {
+    const wrap = document.getElementById("automations");
+    wrap.innerHTML = "";
+    automations.forEach((a) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML =
+        '<div class="row-main">' +
+          '<div class="row-title" data-i18n="' + a.title + '">' + t(a.title) + "</div>" +
+          '<div class="row-desc" data-i18n="' + a.desc + '">' + t(a.desc) + "</div>" +
+        "</div>" +
+        '<label class="switch"><input type="checkbox"' + (dshSettings.automations[a.key] ? " checked" : "") + '><span class="slider"></span></label>';
+      const cb = row.querySelector("input");
+      cb.addEventListener("change", () => {
+        dshSettings.automations[a.key] = cb.checked;
+        save(LS.automations, dshSettings.automations);
+        flashSaved();
+      });
+      wrap.appendChild(row);
+    });
+  }
+
+  function buildSettings() {
+    const wrap = document.getElementById("settings");
+    wrap.innerHTML = "";
+    settings.forEach((s) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      let control = "";
+      if (s.type === "toggle") {
+        control = '<label class="switch"><input type="checkbox"' + (dshSettings.settings[s.key] ? " checked" : "") + '><span class="slider"></span></label>';
+      } else if (s.type === "select") {
+        const opts = s.options.map((o) =>
+          '<option value="' + o + '"' + (dshSettings.settings[s.key] === o ? " selected" : "") + ">" + o + "</option>").join("");
+        control = '<select class="sel">' + opts + "</select>";
+      } else if (s.type === "text") {
+        control = '<input type="text" class="inp" value="' + esc(dshSettings.settings[s.key] || "") + '" data-i18n-ph="' + s.ph + '" placeholder="' + t(s.ph) + '">';
+      } else if (s.type === "number") {
+        const mn = s.min !== undefined ? s.min : 0;
+        const mx = s.max !== undefined ? s.max : 1;
+        const st = s.step !== undefined ? s.step : 0.05;
+        control = '<input type="number" class="inp num" min="' + mn + '" max="' + mx + '" step="' + st + '" value="' + (dshSettings.settings[s.key] || 0) + '">';
+      } else if (s.type === "lang") {
+        control = '<div class="lang-seg"><button data-lang="zh" data-i18n="langZh">中文</button><button data-lang="en" data-i18n="langEn">English</button></div>';
+      } else if (s.type === "seg") {
+        let cur, attr;
+        if (s.key === "mode") { cur = dshSettings.mode || "default"; attr = "data-mode"; }
+        else if (s.key === "theme") { cur = dshSettings.theme || "light"; attr = "data-theme"; }
+        else { cur = dshSettings.translation; attr = "data-lang"; }
+        control = '<div class="lang-seg mode-seg">' + s.options.map((o) =>
+          '<button ' + attr + '="' + o.value + '"' + (cur === o.value ? ' class="active"' : "") + ' data-i18n="' + o.labelKey + '">' + t(o.labelKey) + "</button>").join("") + "</div>";
+      }
+      row.innerHTML =
+        '<div class="row-main">' +
+          '<div class="row-title" data-i18n="' + s.title + '">' + t(s.title) + "</div>" +
+          '<div class="row-desc" data-i18n="' + s.desc + '">' + t(s.desc) + "</div>" +
+        "</div>" +
+        '<div class="row-ctrl">' + control + "</div>";
+
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb) cb.addEventListener("change", () => { dshSettings.settings[s.key] = cb.checked; save(LS.settings, dshSettings.settings); flashSaved(); });
+      const sel = row.querySelector("select");
+      if (sel) sel.addEventListener("change", () => { dshSettings.settings[s.key] = sel.value; save(LS.settings, dshSettings.settings); flashSaved(); });
+      const inp = row.querySelector("input.inp");
+      if (inp) inp.addEventListener("input", () => {
+        dshSettings.settings[s.key] = inp.classList.contains("num") ? Number(inp.value) : inp.value;
+        save(LS.settings, dshSettings.settings); flashSaved();
+      });
+      const seg = row.querySelector(".lang-seg");
+      if (seg) {
+        if (s.key === "theme") {
+          seg.querySelectorAll("button").forEach((b) => {
+            b.classList.toggle("active", b.getAttribute("data-theme") === (dshSettings.theme || "light"));
+            b.addEventListener("click", () => setTheme(b.getAttribute("data-theme")));
+          });
+        } else if (s.key === "mode") {
+          seg.querySelectorAll("button").forEach((b) => {
+            b.classList.toggle("active", b.getAttribute("data-mode") === (dshSettings.mode || "default"));
+            b.addEventListener("click", () => setMode(b.getAttribute("data-mode")));
+          });
+        } else {
+          seg.querySelectorAll("button").forEach((b) => {
+            b.classList.toggle("active", b.getAttribute("data-lang") === dshSettings.translation);
+            b.addEventListener("click", () => setTranslation(b.getAttribute("data-lang")));
+          });
+        }
+      }
+      wrap.appendChild(row);
+    });
+  }
+
+  document.querySelectorAll("#langSwitch button").forEach((b) =>
+    b.addEventListener("click", () => setTranslation(b.getAttribute("data-lang"))));
+
+  buildAutomations();
+  buildSettings();
+  applyLanguage();
+  if ((dshSettings.theme || "light") === "dark") document.documentElement.classList.add("theme-dark");
+  document.body.classList.add("mode-" + (dshSettings.mode || "default"));
+</script>
+</body>
+</html>
