@@ -48,3 +48,21 @@ jobs:
           SUMMARY: ${{ steps.review.outputs.summary }}
           BLOCKERS: ${{ steps.review.outputs.blockers-count }}
 
+      # Persist the structured result-json so the dashboard collector
+      # (collect-dashboard-data.yml) can aggregate real review runs into
+      # dashboard-data.json. The value is untrusted model output, so it is
+      # passed through env (never spliced into a shell command).
+      - if: always()
+        name: Stage result-json artifact
+        env:
+          RESULT_JSON: ${{ steps.review.outputs.result-json }}
+        run: printf '%s' "$RESULT_JSON" > result-json.json
+
+      - if: always()
+        name: Upload result-json
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-result-json
+          path: result-json.json
+          if-no-files-found: warn
+          retention-days: 30

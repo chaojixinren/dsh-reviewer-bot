@@ -891,14 +891,25 @@
   function normalizeRun(raw) {
     if (!raw || typeof raw !== "object") return null;
     const v = raw.verdict || {};
+    // 兼容两种信封形态：ReviewResult（verdict 嵌套）与 action 的 result-json
+    // 信封（status/conclusion、findingsCount 等可能出现在顶层）。
+    const status = v.status || raw.status || raw.conclusion || "unknown";
+    const findingsCount = typeof v.findingsCount === "number" ? v.findingsCount
+      : (typeof raw.findingsCount === "number" ? raw.findingsCount : (raw.findings ? raw.findings.length : 0));
+    const blockersCount = typeof v.blockersCount === "number" ? v.blockersCount
+      : (typeof raw.blockersCount === "number" ? raw.blockersCount : 0);
+    const durationMs = typeof v.durationMs === "number" ? v.durationMs
+      : (typeof raw.durationMs === "number" ? raw.durationMs
+      : (raw.timing && typeof raw.timing.totalMs === "number" ? raw.timing.totalMs : 0));
+    const failedStatus = ["failed", "timed_out", "validation_failed", "denied"];
     return {
-      requestId: raw.requestId || "unknown",
+      requestId: raw.requestId || raw.runId || raw.commitSha || "unknown",
       operation: raw.operation || "-",
-      status: v.status || "unknown",
-      failed: !!raw.failed || v.status === "failed" || v.status === "timed_out" || v.status === "validation_failed" || v.status === "denied",
-      findingsCount: typeof v.findingsCount === "number" ? v.findingsCount : (raw.findings ? raw.findings.length : 0),
-      blockersCount: typeof v.blockersCount === "number" ? v.blockersCount : 0,
-      durationMs: typeof v.durationMs === "number" ? v.durationMs : 0,
+      status: status,
+      failed: !!raw.failed || failedStatus.indexOf(status) >= 0,
+      findingsCount: findingsCount,
+      blockersCount: blockersCount,
+      durationMs: durationMs,
       findings: Array.isArray(raw.findings) ? raw.findings : [],
       suppressed: Array.isArray(raw.suppressed) ? raw.suppressed : [],
       discarded: Array.isArray(raw.discarded) ? raw.discarded : [],
@@ -1211,7 +1222,7 @@
       .then((json) => {
         const arr = Array.isArray(json) ? json
           : (json && Array.isArray(json.runs) ? json.runs
-          : (json && json.requestId ? [json] : null));
+          : (json && (json.verdict || json.findings || json.status || json.conclusion || json.schemaVersion) ? [json] : null));
         if (!arr) throw new Error("unexpected shape");
         const ok = arr.filter((r) => normalizeRun(r));
         if (!ok.length) throw new Error("no valid runs");
@@ -1290,15 +1301,21 @@
   if ((dshSettings.theme || "light") === "dark") document.documentElement.classList.add("theme-dark");
   document.body.classList.add("mode-" + (dshSettings.mode || "default"));
 
-  // 数据源初始化：还原配置并自动拉取
+  // 数据源初始化：还原配置并自动拉取真实数据
+  // 默认指向收集 workflow 发布到 gh-pages 的聚合文件（raw.githubusercontent.com
+  // 带 Access-Control-Allow-Origin: *，本地 file:// 打开也能跨域拉取，无需开启 Pages）。
+  const DEFAULT_FEED = "https://raw.githubusercontent.com/chaojixinren/dsh-reviewer-bot/gh-pages/dashboard-data.json";
   try {
     const savedFeed = localStorage.getItem(LS_FEED);
     const savedAuto = localStorage.getItem(LS_AUTO);
-    if (savedFeed) { document.getElementById("feedUrl").value = savedFeed; }
-    document.getElementById("autoRefresh").checked = savedAuto === "true";
+    const feed = savedFeed || DEFAULT_FEED;
+    document.getElementById("feedUrl").value = feed;
+    document.getElementById("autoRefresh").checked = savedAuto === "true" || !savedFeed;
     const upd = localStorage.getItem(LS_UPDATED);
     if (upd) dataSourceMsg("ok", t("dataLastUpdate") + upd);
-    if (savedFeed) { applyAutoRefresh(); fetchFeed(); }
+    // 打开即尝试拉取真实数据（无论是否手动存过）
+    applyAutoRefresh();
+    fetchFeed();
   } catch (e) {}
 </script>
 </body>
