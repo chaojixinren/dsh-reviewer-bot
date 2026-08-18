@@ -6,8 +6,9 @@ import {
   commentId, commitSha, forgeId, requestId,
 } from '@dshrb/review-core'
 import type { ReviewResult, SuppressedFinding } from '@dshrb/review-core'
-import { buildOutputs, buildResultJson, readEventPayload, readInputs, writeOutputs } from '../src/index.ts'
+import { buildOutputs, buildResultJson, readEventPayload, readInputs, resolveValidationInputs, writeOutputs } from '../src/index.ts'
 import { InputError } from '../src/index.ts'
+import type { ActionInputs } from '../src/index.ts'
 
 // --- readInputs -------------------------------------------------------------
 
@@ -67,6 +68,57 @@ describe('readInputs', () => {
   it('fails loudly when rule-packs is not an array of strings', () => {
     expect(() => readInputs({ 'INPUT_DEEPSEEK-API-KEY': 'k', 'INPUT_RULE-PACKS': '[1,2]' }))
       .toThrow(/package names/)
+  })
+})
+
+// --- resolveValidationInputs -------------------------------------------------
+
+describe('resolveValidationInputs', () => {
+  const DIGEST = `ghcr.io/owner/repo@sha256:${'a'.repeat(64)}`
+
+  function inputs(over: Partial<ActionInputs> = {}): ActionInputs {
+    return {
+      'deepseek-api-key': 'sk-123',
+      'run-tests': 'true',
+      'allow-write': 'true',
+      'container-image': DIGEST,
+      'test-commands': [['npm', 'test']],
+      ...over,
+    }
+  }
+
+  /** `inputs()` with the optional `container-image` key removed (exactOptionalPropertyTypes forbids setting it to undefined). */
+  function inputsWithoutImage(over: Partial<ActionInputs> = {}): ActionInputs {
+    const { 'container-image': _image, ...rest } = inputs(over)
+    void _image
+    return rest
+  }
+
+  it('forwards test commands when run-tests is enabled', () => {
+    const resolved = resolveValidationInputs(inputs())
+    expect(resolved.testCommands).toEqual([['npm', 'test']])
+    expect(resolved.containerImage).toBe(DIGEST)
+  })
+
+  it('drops test commands when run-tests is disabled', () => {
+    const resolved = resolveValidationInputs(inputs({ 'run-tests': 'false' }))
+    expect(resolved.testCommands).toEqual([])
+  })
+
+  it('requires a digest-pinned container image for write-mode validation', () => {
+    expect(() => resolveValidationInputs(inputsWithoutImage()))
+      .toThrow(/container-image/)
+  })
+
+  it('does not require the image when write mode is off', () => {
+    const resolved = resolveValidationInputs(inputsWithoutImage({ 'allow-write': 'false' }))
+    expect(resolved.containerImage).toBeUndefined()
+    expect(resolved.testCommands).toEqual([['npm', 'test']])
+  })
+
+  it('rejects a container image that is not digest-pinned', () => {
+    expect(() => resolveValidationInputs(inputs({ 'container-image': 'ghcr.io/owner/repo:latest' })))
+      .toThrow(/digest/)
   })
 })
 

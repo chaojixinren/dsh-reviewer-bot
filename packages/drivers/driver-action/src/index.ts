@@ -289,6 +289,45 @@ function parseTimeoutMinutes(raw: string | undefined): number {
   return value
 }
 
+/** A complete image digest: `@sha256:` followed by exactly 64 hex characters. */
+const DIGEST_RE = /@sha256:[0-9a-f]{64}$/iu
+
+/** Fails loudly when `container-image` is not pinned by a complete digest. */
+function assertDigestPinned(image: string): void {
+  if (!DIGEST_RE.test(image)) {
+    throw new InputError(`input 'container-image' must be pinned by digest (@sha256:<64 hex>), got '${image}'`)
+  }
+}
+
+/**
+ * Resolves the write-mode validation inputs into the runtime config slice.
+ *
+ * `run-tests` is the master switch: when false, validation commands are dropped
+ * even if `test-commands` is supplied. When enabled together with `allow-write`,
+ * a digest-pinned `container-image` is required — the standalone bundle has no
+ * native sandbox launcher, so a missing or unpinned image must fail here, at
+ * input-parse time, rather than surfacing as a generic `SandboxUnavailableError`
+ * deep in the mutate stage.
+ */
+export function resolveValidationInputs(inputs: ActionInputs): {
+  readonly testCommands: readonly (readonly string[])[]
+  readonly containerImage: string | undefined
+} {
+  const runTests = parseBool(inputs['run-tests'], false)
+  const allowWrite = parseBool(inputs['allow-write'], false)
+  const containerImage = inputs['container-image']
+  if (containerImage !== undefined) {
+    assertDigestPinned(containerImage)
+  }
+  if (runTests && allowWrite && containerImage === undefined) {
+    throw new InputError("write-mode validation (run-tests) requires a digest-pinned 'container-image'")
+  }
+  return {
+    testCommands: runTests ? (inputs['test-commands'] ?? []) : [],
+    containerImage,
+  }
+}
+
 /**
  * Boots the Cordis container and returns a `runReview` bound to the resolved
  * configuration. The plugin chain and agent loop are wired by
@@ -301,6 +340,7 @@ export async function createRunner(inputs: ActionInputs, _env: NodeJS.ProcessEnv
   // never enters the agent workspace — it is read only by the adapter chain.
   process.env.DEEPSEEK_API_KEY = inputs['deepseek-api-key']
 
+  const validation = resolveValidationInputs(inputs)
   const runtime = await bootReviewRuntime({
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
@@ -309,7 +349,8 @@ export async function createRunner(inputs: ActionInputs, _env: NodeJS.ProcessEnv
     enableDiagnose: true,
     minSeverity: parseSeverity(inputs['min-severity']),
     timeoutMinutes: parseTimeoutMinutes(inputs['timeout-minutes']),
-    ...(inputs['test-commands'] === undefined ? {} : { testCommands: inputs['test-commands'] }),
+    testCommands: validation.testCommands,
+    ...(validation.containerImage === undefined ? {} : { containerImage: validation.containerImage }),
   })
   return runtime.runReview
 }

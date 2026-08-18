@@ -16,7 +16,7 @@ import type { ConfinedArgv, SandboxExecutionPolicy } from '@deepseek-ai/dsh-sand
 import {
   acceptCommand, acceptGlobCommand, acceptRuleCommand, applySeverityOverrides, applyUnifiedDiff, assembleContext, assembleDiagnoseContext, authorize, buildReplaySnapshot, buildSummary,
   buildValidationEnv, classifyConfinedRun, clusterFiles, clusterWithinShard, deriveReplayId, extractLocalImports, fanOutShards,
-  fetchNeighborContents, ingest, mergeFindings, mutate, narrowPatches, parseMemory, parseMemoryReference, parseReplaySnapshot, reason,
+  fetchNeighborContents, ingest, mergeFindings, mergeRunnerEnv, mutate, narrowPatches, parseMemory, parseMemoryReference, parseReplaySnapshot, reason,
   renderDiagnoseContext, report, resolveLocalImport, route, runReview, runValidationCommands, serializeMemory, shardDiff,
   SNAPSHOT_VERSION, suppressResolved, toConfinedPolicy, UNTRUSTED_LOG_CLOSE, UNTRUSTED_LOG_OPEN, validate, wrapUntrustedLog,
   writeBranchName,
@@ -1189,6 +1189,24 @@ describe('write mode helpers', () => {
     const env = buildValidationEnv({ PATH: '/usr/bin', SECRET: 's3cr3t', NODE_ENV: 'test' }, ['PATH'])
     expect(env).toEqual({ PATH: '/usr/bin' })
     expect('SECRET' in env).toBe(false)
+  })
+
+  it('mergeRunnerEnv adds PATH/HOME from the host but never other names', () => {
+    const previous = { PATH: process.env.PATH, HOME: process.env.HOME }
+    process.env.PATH = '/host/bin'
+    process.env.HOME = '/host/home'
+    try {
+      const env = mergeRunnerEnv({ NODE_ENV: 'test' })
+      expect(env.PATH).toBe('/host/bin')
+      expect(env.HOME).toBe('/host/home')
+      expect(env.NODE_ENV).toBe('test')
+      expect(env.SECRET).toBeUndefined()
+    } finally {
+      if (previous.PATH === undefined) delete process.env.PATH
+      else process.env.PATH = previous.PATH
+      if (previous.HOME === undefined) delete process.env.HOME
+      else process.env.HOME = previous.HOME
+    }
   })
 
   it('toConfinedPolicy narrows danger-full-access to workspace-write', () => {

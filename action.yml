@@ -22,7 +22,10 @@ inputs:
     required: false
     default: 'false'
   run-tests:
-    description: 'Run validation commands after applying patches in write mode.'
+    description: >-
+      Run validation commands after applying patches in write mode. Enabling
+      this (together with `allow-write`) requires a digest-pinned
+      `container-image`, which provides the isolation for those commands.
     required: false
     default: 'false'
   test-commands:
@@ -30,12 +33,14 @@ inputs:
       JSON array of argv arrays, for example
       '[["npm","ci","--ignore-scripts"],["npm","test"]]'.
       Each entry is executed directly and is NOT expanded by a shell, so shell
-      metacharacters in file names cannot become commands.
+      metacharacters in file names cannot become commands. Only honored when
+      `run-tests` is enabled.
     required: false
   container-image:
     description: >-
-      Isolation image for write mode. Requires a complete digest. Docker must be
-      available on the runner. Read-only reviews do not need this.
+      Isolation image for write-mode validation. Must be pinned by a complete
+      digest (`@sha256:<64 hex>`) and Docker must be available on the runner.
+      Read-only reviews do not need this.
     required: false
   progress-comment:
     description: 'Maintain a sticky progress comment. Affects lifecycle updates only.'
