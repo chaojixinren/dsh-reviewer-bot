@@ -300,6 +300,10 @@
     <section class="card">
       <h2 class="sec-title" data-i18n="secSettings">设置</h2>
       <div id="settings"></div>
+      <div class="data-ctrls" style="margin-top:10px;">
+        <button class="btn" id="btnExportConfig" data-i18n="exportConfig">导出可运行配置</button>
+        <span class="note" data-i18n="exportConfigHint">生成 .github/workflows/review.yml：按当前设置真实驱动 bot（含 result-json 上传，数据面板即点亮）。</span>
+      </div>
     </section>
 
     <section class="card">
@@ -460,7 +464,7 @@
       set_mode_desc: "LOGO：半透明面板 + 背景大 logo。纯色：不透明面板，无背景 logo。",
       modeDefault: "LOGO", modeSolid: "纯色",
       saved: "已保存 · 本地",
-      footerNote: "仿 Cursor Bugbot 的控制面板原型，设置保存在浏览器本地。",
+      footerNote: "仿 Cursor Bugbot 的控制面板原型。设置保存在浏览器本地，可用「导出可运行配置」生成真实驱动 bot 的 GitHub Action。",
       secData: "数据面板",
       dataDesc: "可粘贴真实的 result-json，或配置 feed URL 让面板自动拉取并每 5 分钟刷新（需该 URL 允许跨域）。",
       dataDescShort: "汇总 dsh-reviewer-bot 的评审运行数据（基于 result-json 的真实字段）：运行结果、严重度、规则命中与文件分布，可按状态 / 操作筛选。",
@@ -478,6 +482,8 @@
       dataAutoRefresh: "自动刷新（每 5 分钟）",
       dataRefresh: "刷新",
       dataExport: "导出聚合",
+      exportConfig: "导出可运行配置",
+      exportConfigHint: "生成 .github/workflows/review.yml：按当前设置真实驱动 bot（含 result-json 上传，数据面板即点亮）。",
       dataFetchOk: "已从数据源加载 N 条评审。",
       dataFetchErr: "自动拉取失败，已沿用本地数据：",
       dataLastUpdate: "最后更新：",
@@ -557,7 +563,7 @@
       set_mode_desc: "LOGO: translucent panel with a logo backdrop. Solid: opaque panel, no logo backdrop.",
       modeDefault: "LOGO", modeSolid: "Solid",
       saved: "Saved · Local",
-      footerNote: "A Cursor Bugbot-style control panel prototype. Settings are stored locally in your browser.",
+      footerNote: "A Cursor Bugbot-style control panel prototype. Settings are stored locally; use \"Export runnable config\" to generate a real GitHub Action that drives the bot.",
       secData: "Data Panel",
       dataDesc: "Paste a real result-json, or set a feed URL so the panel auto-fetches and refreshes every 5 minutes (URL must allow cross-origin).",
       dataDescShort: "Aggregates dsh-reviewer-bot review runs (grounded in real result-json fields): run outcomes, severity, rule hits and file distribution, filterable by status / operation.",
@@ -575,6 +581,8 @@
       dataAutoRefresh: "Auto-refresh (every 5 min)",
       dataRefresh: "Refresh",
       dataExport: "Export aggregate",
+      exportConfig: "Export runnable config",
+      exportConfigHint: "Generates .github/workflows/review.yml that drives the bot with current settings (incl. result-json upload, lighting up the data panel).",
       dataFetchOk: "Loaded N reviews from the data source.",
       dataFetchErr: "Auto-fetch failed, kept local data:",
       dataLastUpdate: "Last updated: ",
@@ -1269,6 +1277,91 @@
   });
   document.getElementById("btnRefresh").addEventListener("click", fetchFeed);
   document.getElementById("btnExport").addEventListener("click", exportData);
+
+  // ---- 导出可运行配置：把当前设置 + 自动化开关变成真实驱动 bot 的 GitHub Action ----
+  function exportConfig() {
+    try {
+      const s = dshSettings.settings;
+      const a = dshSettings.automations;
+      const minSev = s.minSeverity || "minor";
+      const fixOn = a.fix !== false;
+      const allowWrite = !!(s.allowWrite) && fixOn; // fix 需要写入权限
+      const timeout = Number(s.timeoutMinutes) || 25;
+      let testCommands = [];
+      if (s.testCommands && String(s.testCommands).trim()) {
+        try { testCommands = JSON.parse(s.testCommands); } catch (e) { testCommands = []; }
+      }
+      const runTests = Array.isArray(testCommands) && testCommands.length > 0;
+      let rulePacks = [];
+      if (s.rulePacks && String(s.rulePacks).trim()) {
+        try { rulePacks = JSON.parse(s.rulePacks); } catch (e) { rulePacks = []; }
+      }
+      const tc = runTests
+        ? "          test-commands: '" + JSON.stringify(testCommands) + "'\n          run-tests: 'true'\n"
+        : "";
+      const rp = (Array.isArray(rulePacks) && rulePacks.length > 0)
+        ? "          rule-packs: '" + JSON.stringify(rulePacks) + "'\n"
+        : "";
+      const yaml = [
+        "name: DSHRB review",
+        "on:",
+        "  pull_request: {}",
+        "  issue_comment:",
+        "    types: [created]",
+        "  workflow_dispatch: {}",
+        "",
+        "permissions:",
+        "  contents: write",
+        "  pull-requests: write",
+        "  checks: write",
+        "",
+        "jobs:",
+        "  review:",
+        "    if: >-",
+        "      github.event_name == 'pull_request' ||",
+        "      (github.event_name == 'issue_comment' &&",
+        "       github.event.issue.pull_request &&",
+        "       startsWith(github.event.comment.body, '@dsr'))",
+        "    runs-on: ubuntu-latest",
+        "    timeout-minutes: " + (timeout + 5),
+        "    steps:",
+        "      - uses: actions/checkout@v4",
+        "      - name: DSH Reviewer Bot",
+        "        id: review",
+        "        uses: chaojixinren/dsh-reviewer-bot@v0.1.1",
+        "        with:",
+        "          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}",
+        "          min-severity: '" + minSev + "'",
+        "          allow-write: '" + (allowWrite ? "true" : "false") + "'",
+        tc + rp +
+        "          timeout-minutes: '" + timeout + "'",
+        "      - name: Persist result-json",
+        "        if: always()",
+        "        env:",
+        "          RESULT_JSON: ${{ steps.review.outputs.result-json }}",
+        "        run: printf '%s' \"$RESULT_JSON\" > result-json.json",
+        "      - uses: actions/upload-artifact@v4",
+        "        if: always()",
+        "        with:",
+        "          name: dsh-result-json",
+        "          path: result-json.json",
+        "          if-no-files-found: ignore",
+        "",
+      ].join("\n");
+      const blob = new Blob([yaml], { type: "text/yaml" });
+      const aEl = document.createElement("a");
+      aEl.href = URL.createObjectURL(blob);
+      aEl.download = "review.yml";
+      document.body.appendChild(aEl); aEl.click(); aEl.remove();
+      setTimeout(() => URL.revokeObjectURL(aEl.href), 1000);
+      const st = document.getElementById("status");
+      if (st) st.textContent = t("exportConfig") + ": review.yml ✓";
+    } catch (e) {
+      const st = document.getElementById("status");
+      if (st) st.textContent = "export config failed: " + e.message;
+    }
+  }
+  document.getElementById("btnExportConfig").addEventListener("click", exportConfig);
 
   // ---- 分析弹窗：默认隐藏，点击触发卡打开 ----
   function openDataModal() {
