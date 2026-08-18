@@ -173,24 +173,28 @@
   .note { color: var(--muted); }
 
   /* 数据面板（弹窗内） */
-  .dsub { font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 4px; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 4px; }
-  .kpi { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 6px; text-align: center; }
+  .dsub { font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 9px 0 4px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 4px; }
+  .kpi { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 4px; text-align: center; min-width: 0; }
   .kpi-val { font-size: 18px; font-weight: 700; color: var(--text); line-height: 1.15; }
   .kpi-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .bars { margin: 6px 0 2px; }
-  .bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-  .bar-lbl { width: 54px; flex: none; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-track { flex: 1; height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bars { margin: 4px 0 2px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .bar-lbl { width: 46px; flex: none; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; height: 7px; background: var(--track); border-radius: 999px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
-  .bar-val { width: 64px; flex: none; text-align: right; font-size: 12px; color: var(--text); }
-  .data-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 13px; }
-  .data-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-  .data-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .bar-val { width: 50px; flex: none; text-align: right; font-size: 11px; color: var(--text); }
+  /* 三个分布图并排成卡片（举一反三：多列紧凑布局） */
+  .bars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 2px; }
+  .mini-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; min-width: 0; }
+  .mini-card .dsub { margin: 0 0 4px; }
+  .data-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+  .data-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .data-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
   .data-table tr:last-child td { border-bottom: 0; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; }
   .fpath { color: var(--muted); font-size: 12px; }
-  .data-ctrls { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .data-ctrls { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; align-items: center; }
   .btn { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--seg-bg); color: var(--text); border-radius: 8px; padding: 7px 12px; transition: all .15s ease; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -201,12 +205,13 @@
   .data-msg { font-size: 12px; margin-top: 4px; min-height: 14px; }
   .data-msg.ok { color: #1a7f37; }
   .data-msg.err { color: #e5484d; }
-  @media (max-width: 540px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 720px) { .bars-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .bars-grid { grid-template-columns: 1fr; } }
 
   .filt { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
   .filt .sel { min-width: 140px; padding: 7px 10px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
-  .chip { display: inline-flex; align-items: center; gap: 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; font-size: 12px; }
   .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .chip .cv { font-weight: 700; color: var(--text); }
 
@@ -254,11 +259,11 @@
   body.mode-default .modal-inner {
     background: rgba(255, 255, 255, .82);
     -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
-    border-radius: 14px; padding: 14px 16px;
+    border-radius: 14px; padding: 12px 14px;
   }
   .theme-dark body.mode-default .modal-inner { background: rgba(22, 27, 34, .82); }
   /* 纯色模式：不设统一 sheet，内容直接落在不透明外壳（var(--card)）上 */
-  body.mode-solid .modal-inner { padding: 16px 18px; }
+  body.mode-solid .modal-inner { padding: 14px 16px; }
   .modal-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-bottom: 8px; }
   .modal-head h2 { font-size: 17px; margin: 0; font-weight: 700; }
   .modal-close {
@@ -371,14 +376,20 @@
         <div class="dsub" data-i18n="dataStatusDist">运行结果分布</div>
         <div class="chips" id="statusChips"></div>
 
-        <div class="dsub" data-i18n="dataSeverityDist">严重程度分布</div>
-        <div class="bars" id="severityBars"></div>
-
-        <div class="dsub" data-i18n="dataTopRules">规则命中 Top</div>
-        <div class="bars" id="ruleBars"></div>
-
-        <div class="dsub" data-i18n="dataTopFiles">文件分布 Top（按发现所在文件）</div>
-        <div class="bars" id="fileBars"></div>
+        <div class="bars-grid">
+          <div class="mini-card">
+            <div class="dsub" data-i18n="dataSeverityDist">严重程度分布</div>
+            <div class="bars" id="severityBars"></div>
+          </div>
+          <div class="mini-card">
+            <div class="dsub" data-i18n="dataTopRules">规则命中 Top</div>
+            <div class="bars" id="ruleBars"></div>
+          </div>
+          <div class="mini-card">
+            <div class="dsub" data-i18n="dataTopFiles">文件分布 Top（按发现所在文件）</div>
+            <div class="bars" id="fileBars"></div>
+          </div>
+        </div>
 
         <div class="dsub" data-i18n="dataRecent">最近发现</div>
         <div style="overflow-x:auto;">
@@ -396,15 +407,13 @@
           </table>
         </div>
 
-        <div class="data-ctrls">
+        <div class="data-ctrls" style="margin-top:8px;">
           <button class="btn primary" id="btnLoadSample" data-i18n="dataLoadSample">载入示例</button>
           <button class="btn" id="btnClear" data-i18n="dataClear">清空</button>
+          <button class="btn" id="btnImport" data-i18n="dataImport">导入数据</button>
         </div>
         <div class="data-io">
           <textarea id="dataInput" data-i18n-ph="dataInputPh" placeholder="粘贴 result-json 或 result-json 数组…"></textarea>
-          <div class="data-ctrls">
-            <button class="btn" id="btnImport" data-i18n="dataImport">导入数据</button>
-          </div>
           <div class="data-msg" id="dataMsg"></div>
         </div>
       </div>
