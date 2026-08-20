@@ -133,7 +133,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@dshrb/results/types#ReviewRun',
-        schema: runSchema,
+        schema: runSchema.nullable(),
       },
     },
     {
