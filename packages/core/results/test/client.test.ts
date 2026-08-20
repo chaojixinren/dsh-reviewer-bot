@@ -71,8 +71,8 @@ describe('@dshrb/results client.js (browser half) smoke', () => {
     const ctx = {
       remote: {
         $mount: async () => async () => {},
-        get: () => remote,
       },
+      get: (key: string) => (key === 'remote.dshrbResults' ? remote : undefined),
       slots: {
         inject: (_name: string, registerFn: () => any) => {
           sectionComponent = registerFn().Component
