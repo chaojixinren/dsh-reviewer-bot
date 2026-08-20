@@ -192,10 +192,20 @@ export function normalizeEnvelope(raw: unknown): ReviewRun {
     schemaVersion = e.schemaVersion
     status = typeof e.status === 'string' ? e.status : 'neutral'
   } else if (typeof e.version === 'number' || typeof e.version === 'string') {
-    // Replay snapshot: flat `findings` array, separate `version` field.
-    items = asArray(findings)
-    discarded = []
-    suppressed = []
+    // Replay snapshot. The classic shape carries a flat `findings` array, but a
+    // replayed `result-json` may keep the object form {items, discarded,
+    // suppressed}. Read either so object-form findings are never silently
+    // dropped by the `asArray` fallback.
+    if (findings != null && typeof findings === 'object' && !Array.isArray(findings)) {
+      const f = findings as Record<string, unknown>
+      items = asArray(f.items)
+      discarded = asArray(f.discarded)
+      suppressed = asArray(f.suppressed)
+    } else {
+      items = asArray(findings)
+      discarded = []
+      suppressed = []
+    }
     schemaVersion = 0
     status = typeof e.status === 'string' ? e.status : 'neutral'
   } else if (Array.isArray(findings)) {
