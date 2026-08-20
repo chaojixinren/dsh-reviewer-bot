@@ -341,7 +341,9 @@ window.__ModuleLoader__.load({
                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
                   statusBadge(detail.status),
                   detail.trustLevel ? badge('trust:' + detail.trustLevel, '#6a1b9a') : null,
-                  detail.write ? badge('write', '#2e7d32') : badge('read-only', '#546e7a'),
+                  detail.write && (detail.write.commitSha || detail.write.pullRequestUrl)
+                    ? badge('write', '#2e7d32')
+                    : badge('read-only', '#546e7a'),
                   detail.replay ? React.createElement('span', { style: code }, 'replay ' + detail.replay) : null,
                   React.createElement('button', { style: button, disabled: busy, onClick: onClearOne }, 'Clear this run'),
                 ),
