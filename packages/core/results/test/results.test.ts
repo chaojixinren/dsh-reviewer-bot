@@ -41,7 +41,7 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.trustLevel).toBe('trusted-read')
     expect(run.summary.total).toBe(3)
     expect(run.summary.bySeverity).toEqual({ blocker: 1, minor: 2 })
-    expect(run.summary.byRule).toEqual({ 'sec-sql': 1, style: 3 })
+    expect(run.summary.byRule).toEqual({ 'sec-sql': 1, style: 2 })
     expect(run.summary.suppressed).toBe(1)
     expect(run.summary.discarded).toBe(1)
     expect(run.findings).toHaveLength(3)
