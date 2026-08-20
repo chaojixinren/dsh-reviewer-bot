@@ -65,6 +65,15 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.summary.bySeverity.major).toBe(1)
   })
 
+  it('normalizes a version-only replay snapshot (empty findings) as a zero run', () => {
+    const run = normalizeEnvelope({ version: 5, status: 'neutral' })
+    expect(run.schemaVersion).toBe(0)
+    expect(run.summary.total).toBe(0)
+    expect(run.findings).toHaveLength(0)
+    expect(run.suppressed).toHaveLength(0)
+    expect(run.discarded).toHaveLength(0)
+  })
+
   it('normalizes a legacy flat-findings envelope (no schemaVersion/version)', () => {
     const run = normalizeEnvelope({
       status: 'neutral',
