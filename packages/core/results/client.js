@@ -176,7 +176,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function FindingsTable(findings, onRow) {
+    function FindingsTable(findings) {
       if (!findings || findings.length === 0) {
         return React.createElement('div', { style: hint }, 'No findings.')
       }
