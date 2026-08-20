@@ -190,6 +190,17 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(gateway.getResult(res.id)).toBeNull()
   })
 
+  it('gateway clear-all (no id) empties the store and rejects malformed envelopes', () => {
+    const root = new Context()
+    apply(root)
+    const gateway = root.get('dshrbResultsRemote')
+    gateway.submitResult(sampleEnvelope())
+    expect(gateway.listResults()).toHaveLength(1)
+    gateway.clearResults() // no id -> clear all
+    expect(gateway.listResults()).toHaveLength(0)
+    expect(() => gateway.submitResult({ not: 'a result' })).toThrow()
+  })
+
   it('evicts the oldest run past maxRuns', () => {
     const root = new Context()
     apply(root, { maxRuns: 2 })
