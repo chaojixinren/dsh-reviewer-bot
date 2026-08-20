@@ -147,7 +147,9 @@ window.__ModuleLoader__.load({
     }
 
     function statusBadge(status) {
-      var color = status === 'success' ? '#2e7d32' : status === 'failed' ? '#c62828' : '#546e7a'
+      var color = status === 'success' ? '#2e7d32'
+        : status === 'failed' || status === 'failure' ? '#c62828'
+        : '#546e7a'
       return badge(status, color)
     }
 
@@ -245,17 +247,17 @@ window.__ModuleLoader__.load({
         return function () { cancelled = true }
       }, [])
 
-      function selectRun(id) {
-        setSelected(id)
-        setSevFilter('all')
-        setBusy(true)
-        getResult(id).then(function (run) {
-          setDetail(run)
-        }, function (error) {
-          setMsg(String(error && error.message || error))
-          setDetail(null)
-        }).then(function () { setBusy(false) })
-      }
+    function selectRun(id) {
+      setSelected(id)
+      setSevFilter('all')
+      setBusy(true)
+      return getResult(id).then(function (run) {
+        setDetail(run)
+      }, function (error) {
+        setMsg(String(error && error.message || error))
+        setDetail(null)
+      }).then(function () { setBusy(false) })
+    }
 
       function onLoad() {
         if (text.trim() === '') { setMsg('Paste a result-json first.'); return }
@@ -263,10 +265,10 @@ window.__ModuleLoader__.load({
         try { parsed = JSON.parse(text) } catch (e) { setMsg('Invalid JSON: ' + e.message); return }
         setBusy(true)
         setMsg('')
-        submitResult(parsed).then(function (res) {
-          setText('')
-          return reload().then(function () { selectRun(res.id) })
-        }, function (error) {
+      submitResult(parsed).then(function (res) {
+        setText('')
+        return reload().then(function () { return selectRun(res.id) })
+      }, function (error) {
           setMsg(String(error && error.message || error))
         }).then(function () { setBusy(false) })
       }
