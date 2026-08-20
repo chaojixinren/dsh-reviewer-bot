@@ -228,6 +228,9 @@ window.__ModuleLoader__.load({
       var msgState = React.useState('')
       var msg = msgState[0]
       var setMsg = msgState[1]
+      // Stable holder for the latest requested run id, so an out-of-order
+      // getResult response can't clobber the detail pane with the wrong run.
+      var latestReqHolder = React.useState({ current: null })[0]
 
       function reload() {
         return listResults().then(function (list) {
@@ -251,12 +254,16 @@ window.__ModuleLoader__.load({
       setSelected(id)
       setSevFilter('all')
       setBusy(true)
+      latestReqHolder.current = id
+      var reqId = id
       return getResult(id).then(function (run) {
-        setDetail(run)
+        if (reqId === latestReqHolder.current) setDetail(run)
       }, function (error) {
-        setMsg(String(error && error.message || error))
-        setDetail(null)
-      }).then(function () { setBusy(false) })
+        if (reqId === latestReqHolder.current) {
+          setMsg(String(error && error.message || error))
+          setDetail(null)
+        }
+      }).then(function () { if (reqId === latestReqHolder.current) setBusy(false) })
     }
 
       function onLoad() {
