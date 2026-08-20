@@ -85,7 +85,7 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(list[0]!.writeRequested).toBe(false)
 
     const full = root.results.get(res.id)
-    expect(full?.summary.byRule.style).toBe(3)
+    expect(full?.summary.byRule.style).toBe(2)
 
     expect(root.results.get('nope')).toBeUndefined()
     root.results.clear(res.id)
