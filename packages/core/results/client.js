@@ -224,6 +224,7 @@ window.__ModuleLoader__.load({
       var busy = busyState[0]
       var setBusy = busyState[1]
       var msgState = React.useState('')
+      var msg = msgState[0]
       var setMsg = msgState[1]
 
       function reload() {
