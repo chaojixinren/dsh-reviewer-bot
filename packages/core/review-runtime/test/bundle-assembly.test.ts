@@ -136,6 +136,7 @@ function patch(): readonly BundleEntry[] {
 /** The layer order the reactive coeffects expect (docs/05:84-116). */
 const EXPECTED_NAMES = [
   '@dshrb/config',
+  '@dshrb/results',
   '@dshrb/rule-registry',
   '@dshrb/rules-baseline',
   '@dshrb/forge',
