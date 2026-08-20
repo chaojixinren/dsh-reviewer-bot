@@ -29,6 +29,16 @@
         # (the user document layer).
         allowWrite: false
 
+    # Review-results Web UI panel — the continuation of PR #79. Owns the
+    # in-memory `dshrbResults` store the browser reads through a Typert Remote
+    # (`ctx.remote.dshrbResults`), so the Web UI can *view* reviewer output the
+    # same way `@dshrb/config` lets it *edit* reviewer configuration.
+    - id: dshrb-results
+      name: '@dshrb/results'
+      config:
+        # Cap on in-memory retained runs; oldest evicted past this.
+        maxRuns: 50
+
     # Rule registry must load before packs that inject it; Cordis handles the
     # ordering through reactive coeffects, so this is for human readability.
     - id: dshrb-rule-registry
