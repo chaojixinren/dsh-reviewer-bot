@@ -188,6 +188,7 @@ describe('@dshrb/results review-results store + browser remote', () => {
 
     gateway.clearResults(res.id)
     expect(gateway.getResult(res.id)).toBeNull()
+    expect(gateway.getResult('does-not-exist')).toBeNull()
   })
 
   it('gateway clear-all (no id) empties the store and rejects malformed envelopes', () => {
