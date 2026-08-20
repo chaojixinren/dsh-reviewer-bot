@@ -119,6 +119,30 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.summary.total).toBe(1)
   })
 
+  it('tolerates sparse / malformed findings with safe fallbacks', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'success',
+      findings: {
+        items: [
+          { severity: 'blocker', title: 'Real', anchor: { path: 'a.ts', line: 1, side: 'right', anchored: true }, ruleId: 'sec' },
+          { severity: 'bogus', title: 'Bad severity', anchor: { path: 'b.ts', line: 2, side: 'right', anchored: true }, ruleId: 'sec' },
+          { title: 'No severity, no ruleId' },
+          {},
+        ],
+        discarded: [],
+        suppressed: [],
+      },
+    })
+    expect(run.summary.total).toBe(4)
+    expect(run.summary.bySeverity).toEqual({ blocker: 1, info: 3 })
+    // missing / invalid ruleId collapses to 'untagged'
+    expect(run.summary.byRule).toEqual({ sec: 2, untagged: 2 })
+    // invalid severity falls back to 'info'; missing title falls back to ''
+    expect(run.findings[1]!.severity).toBe('info')
+    expect(run.findings[3]!.title).toBe('')
+  })
+
   it('throws on an unrecognizable envelope', () => {
     expect(() => normalizeEnvelope({ hello: 'world' })).toThrow()
     expect(() => normalizeEnvelope(null)).toThrow()
