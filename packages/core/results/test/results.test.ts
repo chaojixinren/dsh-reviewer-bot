@@ -177,6 +177,19 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(ids).not.toContain(a.id)
   })
 
+  it('notifies watchers on ingest/clear and stops after unsubscribe', () => {
+    const root = new Context()
+    apply(root)
+    const lengths: number[] = []
+    const off = root.results.watch((list) => { lengths.push(list.length) })
+    root.results.ingest(sampleEnvelope())
+    root.results.ingest(sampleEnvelope())
+    root.results.clear() // clear-all (no id)
+    off()
+    root.results.ingest(sampleEnvelope()) // after unsubscribe: no notify
+    expect(lengths).toEqual([1, 2, 0])
+  })
+
   it('carries a Typert binding the api-gateway validates', () => {
     const root = new Context()
     apply(root)
