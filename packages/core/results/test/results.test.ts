@@ -45,8 +45,8 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.summary.suppressed).toBe(1)
     expect(run.summary.discarded).toBe(1)
     expect(run.findings).toHaveLength(3)
-    expect(run.findings[0].path).toBe('a.ts')
-    expect(run.findings[0].line).toBe(10)
+    expect(run.findings[0]!.path).toBe('a.ts')
+    expect(run.findings[0]!.line).toBe(10)
     expect(run.suppressed).toHaveLength(1)
     expect(run.discarded).toHaveLength(1)
     expect(run.timing?.durationMs).toBe(1234)
@@ -80,9 +80,9 @@ describe('@dshrb/results review-results store + browser remote', () => {
 
     const list = root.results.list()
     expect(list).toHaveLength(1)
-    expect(list[0].total).toBe(3)
-    expect(list[0].blockers).toBe(1)
-    expect(list[0].writeRequested).toBe(false)
+    expect(list[0]!.total).toBe(3)
+    expect(list[0]!.blockers).toBe(1)
+    expect(list[0]!.writeRequested).toBe(false)
 
     const full = root.results.get(res.id)
     expect(full?.summary.byRule.style).toBe(3)
