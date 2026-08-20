@@ -65,6 +65,24 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.summary.bySeverity.major).toBe(1)
   })
 
+  it('normalizes a legacy flat-findings envelope (no schemaVersion/version)', () => {
+    const run = normalizeEnvelope({
+      status: 'neutral',
+      findings: [
+        { findingId: 'l1', severity: 'major', title: 'T', anchor: { path: 'p.ts', line: 1, side: 'right', anchored: true } },
+        { findingId: 'l2', severity: 'minor', title: 'N', anchor: { path: 'q.ts', line: 2, side: 'right', anchored: true }, ruleId: 'style' },
+      ],
+      discarded: [
+        { findingId: 'd1', severity: 'info', title: 'I', anchor: { path: 'r.ts', line: 3, side: 'right', anchored: false } },
+      ],
+    })
+    expect(run.schemaVersion).toBe(0)
+    expect(run.summary.total).toBe(2)
+    expect(run.summary.bySeverity).toEqual({ major: 1, minor: 1 })
+    expect(run.summary.discarded).toBe(1)
+    expect(run.findings).toHaveLength(2)
+  })
+
   it('throws on an unrecognizable envelope', () => {
     expect(() => normalizeEnvelope({ hello: 'world' })).toThrow()
     expect(() => normalizeEnvelope(null)).toThrow()
