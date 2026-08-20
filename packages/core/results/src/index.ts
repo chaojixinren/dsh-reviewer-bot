@@ -274,7 +274,8 @@ function createService(maxRuns: number): DshrbResultsService {
     const list = toSummaries()
     for (const cb of watchers) {
       try {
-        void Promise.resolve(cb(list)).catch(() => {})
+        const result = cb(list) as Promise<void> | undefined
+        if (result && typeof result.catch === 'function') result.catch(() => {})
       } catch {
         // A watcher threw synchronously; ignore so one bad subscriber can't
         // break notification for the rest.
