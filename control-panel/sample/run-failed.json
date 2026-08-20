@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "timing": { "durationMs": 30511, "ingestMs": 940, "reviewMs": 29571, "publishMs": 0 },
+  "policy": { "trustLevel": "none", "capabilities": [] },
+  "operation": "review",
+  "forge": "github",
+  "isolation": null,
+  "findings": {
+    "items": [],
+    "discarded": [],
+    "suppressed": []
+  },
+  "publication": null,
+  "validation": null,
+  "write": null,
+  "rules": [],
+  "failure": {
+    "code": "E_TIMEOUT",
+    "phase": "review",
+    "title": "Review exceeded budget",
+    "message": "The model loop did not converge within timeout-minutes=25.",
+    "guidance": "Raise timeout-minutes or shrink the change set.",
+    "retryable": true
+  },
+  "replay": null
+}

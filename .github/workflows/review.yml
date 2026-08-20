@@ -32,12 +32,9 @@ jobs:
           fetch-depth: 1
 
       - id: review
-        uses: chaojixinren/dsh-reviewer-bot@v0.1.1
+        uses: chaojixinren/dsh-reviewer-bot@v1
         with:
           deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
-          # forge-github only mounts when a token is supplied; without it the
-          # pipeline fails at authorize with "no forge provider registered".
-          github-token: ${{ github.token }}
 
       # Outputs are written even when the step above fails, so read them under
       # always(). Untrusted strings go through env — never `run: echo "${{ ... }}"`,
@@ -48,3 +45,19 @@ jobs:
           SUMMARY: ${{ steps.review.outputs.summary }}
           BLOCKERS: ${{ steps.review.outputs.blockers-count }}
 
+      # Persist the official `result-json` output as a workflow artifact so it
+      # can be retrieved by the companion viewer (control-panel/) or any other
+      # tool. The untrusted, model-derived text reaches the file ONLY through
+      # the env var below — never interpolated into a shell command.
+      - name: Save result-json
+        if: always()
+        run: node -e "require('fs').writeFileSync('result-json.json', process.env.DSHRB_RESULT_JSON || '{}')"
+        env:
+          DSHRB_RESULT_JSON: ${{ steps.review.outputs.result-json }}
+
+      - name: Upload result-json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-result-json
+          path: result-json.json

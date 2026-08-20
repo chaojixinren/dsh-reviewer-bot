@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "status": "success",
+  "timing": { "durationMs": 18432, "ingestMs": 1203, "reviewMs": 15210, "publishMs": 2019 },
+  "policy": { "trustLevel": "untrusted", "capabilities": ["review"] },
+  "operation": "review",
+  "forge": "github",
+  "isolation": null,
+  "findings": {
+    "items": [
+      {
+        "findingId": "f-1001",
+        "severity": "blocker",
+        "title": "Unchecked array access can throw RangeError",
+        "body": "Index is not bounds-checked before access; a short array panics the request handler.",
+        "ruleId": "correctness/null-undefined",
+        "confidence": 0.92,
+        "failureScenario": "index=5 with array length 3 throws RangeError at src/handler.ts:42",
+        "anchor": { "path": "src/handler.ts", "line": 42, "side": "right", "anchored": true }
+      },
+      {
+        "findingId": "f-1002",
+        "severity": "major",
+        "title": "Race on shared cache without lock",
+        "body": "Two goroutines mutate the in-memory cache; stale reads under load are likely.",
+        "ruleId": "concurrency/shared-state",
+        "confidence": 0.74,
+        "anchor": { "path": "src/cache.go", "line": 88, "side": "right", "anchored": true }
+      },
+      {
+        "findingId": "f-1003",
+        "severity": "minor",
+        "title": "Dead store of computed token",
+        "body": "The value assigned to `token` is never read afterwards.",
+        "ruleId": "maintainability/dead-code",
+        "confidence": 0.81,
+        "anchor": { "path": "src/auth.ts", "line": 17, "side": "right", "anchored": true }
+      },
+      {
+        "findingId": "f-1004",
+        "severity": "nit",
+        "title": "Inconsistent quote style",
+        "body": "Mixes single and double quotes in the same module.",
+        "ruleId": "style/quotes",
+        "confidence": 0.6,
+        "anchor": { "path": "src/format.ts", "line": 9, "side": "right", "anchored": false, "fallbackReason": "line shifted after rebase" }
+      }
+    ],
+    "discarded": [
+      { "reason": "missing-title", "rawTitle": "an unqualified proposal" },
+      { "reason": "unsafe-path", "rawTitle": "touch /etc/passwd" }
+    ],
+    "suppressed": [
+      {
+        "key": "src/legacy.ts\0style/quotes\0use double quotes",
+        "resolvedBy": "team-rfc-12",
+        "reason": "legacy module exempted from quote rule by decision",
+        "severity": "nit",
+        "title": "use double quotes",
+        "ruleId": "style/quotes",
+        "anchor": { "path": "src/legacy.ts", "line": 3, "side": "right", "anchored": true }
+      }
+    ]
+  },
+  "publication": { "published": 4, "downgraded": 0, "failed": 0 },
+  "validation": null,
+  "write": {
+    "appliedPatches": 0,
+    "commitSha": null,
+    "pullRequestUrl": "https://github.com/example/repo/pull/123"
+  },
+  "rules": [
+    { "id": "correctness/null-undefined", "version": "1.2.0", "title": "Null & undefined safety" },
+    { "id": "concurrency/shared-state", "version": "1.0.3", "title": "Shared state safety" },
+    { "id": "maintainability/dead-code", "version": "1.1.0", "title": "Dead code" },
+    { "id": "style/quotes", "version": "1.0.0", "title": "Quote style" }
+  ],
+  "failure": null,
+  "replay": "snap-abc123"
+}

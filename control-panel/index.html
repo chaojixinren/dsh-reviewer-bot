@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DSHarness 评审结果查看器</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1f2328; --muted: #656d76;
+    --line: #d8dee4; --accent: #2563eb; --chip: #eef2ff; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  [data-theme="dark"] {
+    --bg: #0d1117; --panel: #161b22; --ink: #e6edf3; --muted: #8b949e;
+    --line: #30363d; --accent: #58a6ff; --chip: #1f2937; --shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 12px; flex: 1 1 320px; }
+  header .sub b { color: var(--accent); }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 6px 11px; cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .toolbar input[type=text] { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--bg); color: var(--ink); min-width: 260px; }
+  main { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 16px 20px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .col-left { display: flex; flex-direction: column; gap: 10px; }
+  .col-right { display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .run { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; background: var(--bg); }
+  .run:hover { border-color: var(--accent); }
+  .run.active { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .run .r1 { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .run .name { font-weight: 600; font-size: 13px; word-break: break-all; }
+  .run .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+  .b-success { background: #dafbe1; color: #1a7f37; }
+  .b-neutral { background: #eaeef2; color: #57606a; }
+  .b-failed, .b-denied, .b-timed_out, .b-validation_failed { background: #ffebe9; color: #cf222e; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+  .kpi { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .kpi .v { font-size: 22px; font-weight: 700; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  .kpi .v.warn { color: #cf222e; }
+  .bars { display: flex; flex-direction: column; gap: 7px; }
+  .bar-row { display: grid; grid-template-columns: 84px 1fr 42px; align-items: center; gap: 8px; font-size: 12px; }
+  .bar-track { background: var(--bg); border-radius: 5px; height: 16px; overflow: hidden; border: 1px solid var(--line); }
+  .bar-fill { height: 100%; }
+  .sev-blocker { background: #cf222e; } .sev-major { background: #d9730d; }
+  .sev-minor { background: #bf8700; } .sev-nit { background: #0969da; } .sev-info { background: #6e7781; }
+  .sev-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; color: #fff; white-space: nowrap; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .filters select, .filters input { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--bg); color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--bg); }
+  .loc { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .detail-q { color: var(--muted); font-size: 12px; }
+  .sec-toggle { cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
+  .pill { font-size: 11px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+  .modal-bg.show { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; max-width: 720px; width: 100%; max-height: 86vh; overflow: auto; padding: 18px; box-shadow: var(--shadow); }
+  .modal h3 { margin: 0 0 10px; }
+  .modal textarea { width: 100%; min-height: 200px; font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); color: var(--ink); }
+  .modal pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; font-size: 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+  .row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .row input, .row select { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--bg); color: var(--ink); }
+  .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .settings-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .settings-grid input, .settings-grid select, .settings-grid textarea { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--bg); color: var(--ink); font-size: 13px; }
+  footer { padding: 12px 20px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  footer code { background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+  .err { color: #cf222e; font-size: 12px; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; z-index: 60; opacity: 0; transition: opacity .2s; }
+  .toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSHarness 评审结果查看器</h1>
+  <div class="sub">
+    消费官方 <b>result-json</b> 输出契约的<b>本地/协作查看器</b>。
+    注意：这不是 DSH 官方 Web UI 面板（官方面板由 DSH 运行时承载）；本工具用于本地审阅评审结果。
+  </div>
+  <button class="btn" id="btnTheme">🌓 主题</button>
+</header>
+
+<div class="toolbar">
+  <input type="file" id="fileInput" accept=".json,application/json" multiple hidden />
+  <button class="btn" id="btnOpen">📂 打开文件</button>
+  <button class="btn" id="btnPaste">📋 粘贴 JSON</button>
+  <input type="text" id="urlInput" placeholder="https://…/result-json.json（原始 URL）" />
+  <button class="btn" id="btnUrl">🌐 从 URL 载入</button>
+  <button class="btn" id="btnSample">✨ 加载示例数据</button>
+  <button class="btn" id="btnClear">🗑 清空</button>
+</div>
+
+<main>
+  <div class="col-left">
+    <div class="card">
+      <h2>评审运行</h2>
+      <div id="runList"><div class="empty">尚未载入数据。点击「加载示例数据」或打开 result-json 文件。</div></div>
+    </div>
+    <div class="card">
+      <h2>设置 → 导出配置</h2>
+      <button class="btn primary" id="btnSettings">⚙ 配置并导出 review.yml</button>
+    </div>
+  </div>
+
+  <div class="col-right">
+    <div class="card">
+      <h2>关键指标</h2>
+      <div class="kpis" id="kpis"><div class="empty">载入数据后显示。</div></div>
+    </div>
+    <div class="card">
+      <h2>严重度分布</h2>
+      <div class="bars" id="sevBars"><div class="empty">—</div></div>
+    </div>
+    <div class="card">
+      <h2>规则命中</h2>
+      <div class="bars" id="ruleBars"><div class="empty">—</div></div>
+    </div>
+    <div class="card">
+      <h2>Findings</h2>
+      <div class="filters">
+        <select id="fMinSev">
+          <option value="info">最低严重度：info</option>
+          <option value="nit">最低严重度：nit</option>
+          <option value="minor">最低严重度：minor</option>
+          <option value="major">最低严重度：major</option>
+          <option value="blocker">最低严重度：blocker</option>
+        </select>
+        <select id="fRule"><option value="">全部规则</option></select>
+        <input type="text" id="fQuery" placeholder="搜索标题/正文/路径…" style="min-width:200px" />
+      </div>
+      <table>
+        <thead><tr><th>严重度</th><th>标题</th><th>规则</th><th>位置</th></tr></thead>
+        <tbody id="findingsBody"><tr><td colspan="4" class="empty">无 findings。</td></tr></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="sec-toggle" id="toggleSuppressed"><h2 style="margin:0">已抑制 (跨 PR 记忆) <span class="pill" id="suppCount"></span></h2><span>▾</span></div>
+      <div id="suppressedBody" style="margin-top:8px"><div class="empty">—</div></div>
+    </div>
+    <div class="card">
+      <div class="sec-toggle" id="toggleDiscarded"><h2 style="margin:0">已丢弃 (校验拒绝) <span class="pill" id="discCount"></span></h2><span>▾</span></div>
+      <div id="discardedBody" style="margin-top:8px"><div class="empty">—</div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  数据来源：DSHarness Action 的稳定输出 <code>result-json</code>（契约见 <code>docs/07-data-contracts.md</code>）。
+  可载入本地文件、粘贴 JSON、或指定原始 URL；示例数据仅为演示契约形态。
+</footer>
+
+<!-- Paste modal -->
+<div class="modal-bg" id="pasteModal">
+  <div class="modal">
+    <h3>粘贴 result-json</h3>
+    <p class="detail-q">支持单个信封对象，或 JSON 数组（多个运行）。可粘贴官方 result-json 信封或 replay 快照。</p>
+    <textarea id="pasteArea" placeholder='{"schemaVersion":1,"status":"success",...}'></textarea>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="btnPasteOk">载入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Finding detail modal -->
+<div class="modal-bg" id="detailModal">
+  <div class="modal" id="detailContent"></div>
+</div>
+
+<!-- Settings / export modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h3>配置并导出可运行的 review.yml</h3>
+    <p class="detail-q">下面生成的 <code>review.yml</code> 是真实可用的 GitHub Actions 工作流：调用官方 Action（<code>@v1</code>），并把 <code>result-json</code> 作为 artifact 上传，供本查看器或其它工具读取。</p>
+    <div class="settings-grid">
+      <label>最低严重度
+        <select id="sMinSev">
+          <option>info</option><option>nit</option><option selected>minor</option><option>major</option><option>blocker</option>
+        </select>
+      </label>
+      <label>超时（分钟）<input id="sTimeout" type="number" value="25" min="1" /></label>
+      <label>允许写模式（@dsr fix）<input id="sAllowWrite" type="checkbox" style="width:auto;align-self:flex-start;margin-top:6px" /></label>
+      <label>运行校验命令<input id="sRunTests" type="checkbox" style="width:auto;align-self:flex-start;margin-top:6px" /></label>
+      <label>测试命令（JSON 数组的 argv 数组）
+        <textarea id="sTestCmds" rows="2" placeholder='[["npm","ci"],["npm","test"]]'></textarea>
+      </label>
+      <label>规则包（JSON 数组的包名）
+        <textarea id="sRulePacks" rows="2" placeholder='["@dshrb/rules-style"]'></textarea>
+      </label>
+    </div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" data-close>取消</button>
+      <button class="btn" id="btnCopyYaml">复制</button>
+      <button class="btn primary" id="btnDownloadYaml">下载 review.yml</button>
+    </div>
+    <pre id="yamlOut"></pre>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const SEVERITY_ORDER = ["blocker", "major", "minor", "nit", "info"];
+const SEV_LABEL = { blocker: "blocker", major: "major", minor: "minor", nit: "nit", info: "info" };
+
+// ---- honest bundled samples (mirror control-panel/sample/*.json) ----
+const SAMPLES = [
+  {"schemaVersion":1,"status":"success","timing":{"durationMs":18432,"ingestMs":1203,"reviewMs":15210,"publishMs":2019},"policy":{"trustLevel":"untrusted","capabilities":["review"]},"operation":"review","forge":"github","isolation":null,"findings":{"items":[{"findingId":"f-1001","severity":"blocker","title":"Unchecked array access can throw RangeError","body":"Index is not bounds-checked before access; a short array panics the request handler.","ruleId":"correctness/null-undefined","confidence":0.92,"failureScenario":"index=5 with array length 3 throws RangeError at src/handler.ts:42","anchor":{"path":"src/handler.ts","line":42,"side":"right","anchored":true}},{"findingId":"f-1002","severity":"major","title":"Race on shared cache without lock","body":"Two goroutines mutate the in-memory cache; stale reads under load are likely.","ruleId":"concurrency/shared-state","confidence":0.74,"anchor":{"path":"src/cache.go","line":88,"side":"right","anchored":true}},{"findingId":"f-1003","severity":"minor","title":"Dead store of computed token","body":"The value assigned to `token` is never read afterwards.","ruleId":"maintainability/dead-code","confidence":0.81,"anchor":{"path":"src/auth.ts","line":17,"side":"right","anchored":true}},{"findingId":"f-1004","severity":"nit","title":"Inconsistent quote style","body":"Mixes single and double quotes in the same module.","ruleId":"style/quotes","confidence":0.6,"anchor":{"path":"src/format.ts","line":9,"side":"right","anchored":false,"fallbackReason":"line shifted after rebase"}}],"discarded":[{"reason":"missing-title","rawTitle":"an unqualified proposal"},{"reason":"unsafe-path","rawTitle":"touch /etc/passwd"}],"suppressed":[{"key":"src/legacy.ts\0style/quotes\0use double quotes","resolvedBy":"team-rfc-12","reason":"legacy module exempted from quote rule by decision","severity":"nit","title":"use double quotes","ruleId":"style/quotes","anchor":{"path":"src/legacy.ts","line":3,"side":"right","anchored":true}}]},"publication":{"published":4,"downgraded":0,"failed":0},"validation":null,"write":{"appliedPatches":0,"commitSha":null,"pullRequestUrl":"https://github.com/example/repo/pull/123"},"rules":[{"id":"correctness/null-undefined","version":"1.2.0","title":"Null & undefined safety"},{"id":"concurrency/shared-state","version":"1.0.3","title":"Shared state safety"},{"id":"maintainability/dead-code","version":"1.1.0","title":"Dead code"},{"id":"style/quotes","version":"1.0.0","title":"Quote style"}],"failure":null,"replay":"snap-abc123"},
+
+  {"schemaVersion":1,"status":"neutral","timing":{"durationMs":9120,"ingestMs":802,"reviewMs":7600,"publishMs":718},"policy":{"trustLevel":"untrusted","capabilities":["review"]},"operation":"review","forge":"github","isolation":null,"findings":{"items":[],"discarded":[],"suppressed":[]},"publication":{"published":0,"downgraded":0,"failed":0},"validation":null,"write":{"appliedPatches":0,"commitSha":null,"pullRequestUrl":null},"rules":[{"id":"correctness/null-undefined","version":"1.2.0","title":"Null & undefined safety"},{"id":"style/quotes","version":"1.0.0","title":"Quote style"}],"failure":null,"replay":"snap-def456"},
+
+  {"schemaVersion":1,"status":"failed","timing":{"durationMs":30511,"ingestMs":940,"reviewMs":29571,"publishMs":0},"policy":{"trustLevel":"none","capabilities":[]},"operation":"review","forge":"github","isolation":null,"findings":{"items":[],"discarded":[],"suppressed":[]},"publication":null,"validation":null,"write":null,"rules":[],"failure":{"code":"E_TIMEOUT","phase":"review","title":"Review exceeded budget","message":"The model loop did not converge within timeout-minutes=25.","guidance":"Raise timeout-minutes or shrink the change set.","retryable":true},"replay":null},
+
+  {"version":1,"replayId":"snap-ghi789","createdAt":1700000000000,"requestId":"snapshot-request","bounded":{"request":{},"shards":[],"rules":[{"id":"correctness/null-undefined","version":"1.2.0","title":"Null & undefined safety"}],"memory":[]},"findings":[{"findingId":"f-s1","severity":"major","title":"Null dereference on optional config","body":"config may be undefined when the flag is off.","ruleId":"correctness/null-undefined","anchor":{"path":"src/config.ts","line":30,"side":"right","anchored":true}},{"findingId":"f-s2","severity":"info","title":"Consider extracting helper","body":"This block repeats in three places.","ruleId":"maintainability/dry","anchor":{"path":"src/config.ts","line":55,"side":"right","anchored":true}}],"discarded":[{"reason":"invalid-patch","rawTitle":"apply unsafe diff"}]}
+];
+
+// ---- state ----
+const state = { runs: [], selected: "ALL", filters: { minSeverity: "info", rule: "", q: "" } };
+
+function normalizeRun(raw, fallbackName) {
+  if (!raw || typeof raw !== "object") throw new Error("无效的 JSON 对象");
+  let findings = [], discarded = [], suppressed = [], rules = [], status = "success", durationMs = 0, write = null, failure = null, replay = null, operation = "", forge = "", trustLevel = "";
+  if (raw.schemaVersion !== undefined) {
+    // official result-json envelope
+    status = raw.status || "success";
+    const f = raw.findings || {};
+    findings = Array.isArray(f.items) ? f.items : [];
+    discarded = Array.isArray(f.discarded) ? f.discarded : [];
+    suppressed = Array.isArray(f.suppressed) ? f.suppressed : [];
+    rules = Array.isArray(raw.rules) ? raw.rules : [];
+    durationMs = (raw.timing && raw.timing.durationMs) || 0;
+    write = raw.write || null;
+    failure = raw.failure || null;
+    replay = raw.replay || null;
+    operation = raw.operation || "";
+    forge = raw.forge || "";
+    trustLevel = (raw.policy && raw.policy.trustLevel) || "";
+  } else if (raw.version !== undefined && Array.isArray(raw.findings)) {
+    // replay snapshot format (version 1)
+    findings = raw.findings;
+    discarded = Array.isArray(raw.discarded) ? raw.discarded : [];
+    suppressed = [];
+    rules = (raw.bounded && Array.isArray(raw.bounded.rules)) ? raw.bounded.rules : [];
+    durationMs = (raw.timing && raw.timing.durationMs) || 0;
+    status = findings.length ? "success" : "neutral";
+    replay = raw.replayId || null;
+  } else if (Array.isArray(raw.findings)) {
+    // legacy flat findings
+    findings = raw.findings;
+    discarded = Array.isArray(raw.discarded) ? raw.discarded : [];
+    suppressed = Array.isArray(raw.suppressed) ? raw.suppressed : [];
+    rules = Array.isArray(raw.rules) ? raw.rules : [];
+    status = (raw.verdict && raw.verdict.status) || (findings.length ? "success" : "neutral");
+    durationMs = (raw.verdict && raw.verdict.durationMs) || 0;
+  } else {
+    throw new Error("无法识别的 JSON 结构（缺 schemaVersion / version / findings）");
+  }
+  const normFinding = (x) => ({
+    severity: x.severity || "info",
+    title: x.title || "(无标题)",
+    body: x.body || "",
+    ruleId: x.ruleId || "",
+    confidence: (typeof x.confidence === "number") ? x.confidence : null,
+    failureScenario: x.failureScenario || null,
+    patch: x.patch || null,
+    anchor: x.anchor || null,
+  });
+  const normFindings = findings.map(normFinding);
+  const blockerCount = normFindings.filter(f => f.severity === "blocker").length;
+  const name = (raw.schemaVersion !== undefined && raw.write && raw.write.pullRequestUrl)
+    ? raw.write.pullRequestUrl
+    : (fallbackName || (raw.replayId ? "snapshot:" + raw.replayId : "run"));
+  return {
+    id: "run-" + (state.runs.length + 1) + "-" + Math.random().toString(36).slice(2, 7),
+    name, status, findings: normFindings, discarded, suppressed, rules,
+    findingCount: normFindings.length, blockerCount, durationMs, write, failure, replay, operation, forge, trustLevel,
+  };
+}
+
+function loadRawObjects(text, fallbackName) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch (e) { throw new Error("JSON 解析失败：" + e.message); }
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  const added = [];
+  for (const item of list) {
+    const run = normalizeRun(item, fallbackName);
+    state.runs.push(run);
+    added.push(run);
+  }
+  return added.length;
+}
+
+// ---- rendering ----
+function scopeRuns() {
+  return state.selected === "ALL" ? state.runs : state.runs.filter(r => r.id === state.selected);
+}
+function scopeFindings() {
+  const minRank = SEVERITY_ORDER.indexOf(state.filters.minSeverity);
+  const q = state.filters.q.trim().toLowerCase();
+  const out = [];
+  for (const r of scopeRuns()) {
+    for (const f of r.findings) {
+      if (SEVERITY_ORDER.indexOf(f.severity) > minRank) continue;
+      if (state.filters.rule && f.ruleId !== state.filters.rule) continue;
+      if (q && !(`${f.title} ${f.body} ${f.ruleId} ${f.anchor ? f.anchor.path : ""}`.toLowerCase().includes(q))) continue;
+      out.push({ ...f, runName: r.name });
+    }
+  }
+  return out;
+}
+function statusBadgeClass(s) { return "badge b-" + String(s).replace(/_/g, ""); }
+
+function renderRuns() {
+  const el = document.getElementById("runList");
+  if (!state.runs.length) { el.innerHTML = '<div class="empty">尚未载入数据。</div>'; return; }
+  const all = '<div class="run ' + (state.selected === "ALL" ? "active" : "") + '" data-id="ALL"><div class="r1"><span class="name">全部运行（聚合）</span><span class="' + statusBadgeClass("") + '"></span></div><div class="meta">' + state.runs.length + ' 个运行</div></div>';
+  const items = state.runs.map(r => {
+    const dur = r.durationMs ? (r.durationMs / 1000).toFixed(1) + "s" : "—";
+    return '<div class="run ' + (state.selected === r.id ? "active" : "") + '" data-id="' + r.id + '">' +
+      '<div class="r1"><span class="name">' + escapeHtml(shortName(r.name)) + '</span><span class="' + statusBadgeClass(r.status) + '">' + r.status + '</span></div>' +
+      '<div class="meta">' + r.findingCount + ' findings · ' + r.blockerCount + ' blocker · ' + dur + (r.replay ? ' · replay' : '') + '</div></div>';
+  }).join("");
+  el.innerHTML = all + items;
+  el.querySelectorAll(".run").forEach(d => d.addEventListener("click", () => { state.selected = d.dataset.id; renderAll(); }));
+}
+
+function renderKpis() {
+  const runs = scopeRuns();
+  const el = document.getElementById("kpis");
+  if (!runs.length) { el.innerHTML = '<div class="empty">载入数据后显示。</div>'; return; }
+  const totalFindings = runs.reduce((a, r) => a + r.findingCount, 0);
+  const totalBlockers = runs.reduce((a, r) => a + r.blockerCount, 0);
+  const failed = runs.filter(r => r.status === "failed" || r.status === "timed_out" || r.status === "validation_failed" || r.status === "denied").length;
+  const avg = runs.length ? Math.round(runs.reduce((a, r) => a + r.durationMs, 0) / runs.length / 1000) : 0;
+  const kpis = [
+    { v: runs.length, l: "运行数" },
+    { v: runs.filter(r => r.status === "success").length, l: "成功" },
+    { v: runs.filter(r => r.status === "neutral").length, l: "中性" },
+    { v: failed, l: "失败", warn: failed > 0 },
+    { v: totalFindings, l: "Findings" },
+    { v: totalBlockers, l: "Blockers", warn: totalBlockers > 0 },
+    { v: avg + "s", l: "平均耗时" },
+  ];
+  el.innerHTML = kpis.map(k => '<div class="kpi"><div class="v ' + (k.warn ? "warn" : "") + '">' + k.v + '</div><div class="l">' + k.l + '</div></div>').join("");
+}
+
+function renderSev() {
+  const el = document.getElementById("sevBars");
+  const fs = scopeFindings();
+  const counts = {}; SEVERITY_ORDER.forEach(s => counts[s] = 0);
+  fs.forEach(f => { if (counts[f.severity] !== undefined) counts[f.severity]++; });
+  const max = Math.max(1, ...SEVERITY_ORDER.map(s => counts[s]));
+  el.innerHTML = SEVERITY_ORDER.map(s => {
+    const c = counts[s]; const pct = Math.round(c / max * 100);
+    return '<div class="bar-row"><span>' + SEV_LABEL[s] + '</span><div class="bar-track"><div class="bar-fill sev-' + s + '" style="width:' + pct + '%"></div></div><span>' + c + '</span></div>';
+  }).join("");
+}
+
+function renderRules() {
+  const el = document.getElementById("ruleBars");
+  const fs = scopeFindings();
+  const counts = {};
+  fs.forEach(f => { if (f.ruleId) counts[f.ruleId] = (counts[f.ruleId] || 0) + 1; });
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!entries.length) { el.innerHTML = '<div class="empty">无规则命中。</div>'; return; }
+  const max = Math.max(1, ...entries.map(e => e[1]));
+  el.innerHTML = entries.map(([rid, c]) => {
+    const pct = Math.round(c / max * 100);
+    return '<div class="bar-row"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(rid) + '">' + escapeHtml(rid) + '</span><div class="bar-track"><div class="bar-fill sev-minor" style="width:' + pct + '%"></div></div><span>' + c + '</span></div>';
+  }).join("");
+}
+
+function renderFindings() {
+  const body = document.getElementById("findingsBody");
+  const fs = scopeFindings();
+  if (!fs.length) { body.innerHTML = '<tr><td colspan="4" class="empty">无 findings（或已被过滤）。</td></tr>'; return; }
+  // sort by severity rank then rule
+  fs.sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity) || (a.ruleId < b.ruleId ? -1 : 1));
+  body.innerHTML = fs.map((f, i) => {
+    const loc = f.anchor ? (escapeHtml(f.anchor.path) + (f.anchor.line ? ":" + f.anchor.line : "")) : "—";
+    return '<tr data-i="' + i + '"><td><span class="sev-badge sev-' + f.severity + '">' + SEV_LABEL[f.severity] + '</span></td>' +
+      '<td>' + escapeHtml(f.title) + (f.confidence != null ? ' <span class="pill">conf ' + f.confidence.toFixed(2) + '</span>' : '') + '</td>' +
+      '<td>' + escapeHtml(f.ruleId || "—") + '</td><td class="loc">' + loc + '</td></tr>';
+  }).join("");
+  body.querySelectorAll("tr").forEach(tr => tr.addEventListener("click", () => openDetail(fs[+tr.dataset.i])));
+  // populate rule filter
+  const sel = document.getElementById("fRule");
+  const cur = state.filters.rule;
+  const allRules = new Set();
+  scopeRuns().forEach(r => r.findings.forEach(f => { if (f.ruleId) allRules.add(f.ruleId); }));
+  sel.innerHTML = '<option value="">全部规则</option>' + [...allRules].sort().map(rid => '<option value="' + escapeHtml(rid) + '"' + (rid === cur ? " selected" : "") + '>' + escapeHtml(rid) + '</option>').join("");
+}
+
+function renderSuppressed() {
+  const el = document.getElementById("suppressedBody");
+  document.getElementById("suppCount").textContent = "";
+  const items = [];
+  scopeRuns().forEach(r => r.suppressed.forEach(s => items.push(s)));
+  document.getElementById("suppCount").textContent = items.length ? "(" + items.length + ")" : "";
+  if (!items.length) { el.innerHTML = '<div class="empty">无已抑制项。</div>'; return; }
+  el.innerHTML = items.map(s => '<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>' + escapeHtml(s.title || s.ruleId || "—") + '</b> <span class="pill">' + escapeHtml(s.severity || "") + '</span><div class="detail-q">规则 ' + escapeHtml(s.ruleId || "—") + ' · 决议 ' + escapeHtml(s.resolvedBy || "—") + (s.reason ? ' · ' + escapeHtml(s.reason) : '') + '</div></div>').join("");
+}
+
+function renderDiscarded() {
+  const el = document.getElementById("discardedBody");
+  document.getElementById("discCount").textContent = "";
+  const items = [];
+  scopeRuns().forEach(r => r.discarded.forEach(d => items.push(d)));
+  document.getElementById("discCount").textContent = items.length ? "(" + items.length + ")" : "";
+  if (!items.length) { el.innerHTML = '<div class="empty">无已丢弃项。</div>'; return; }
+  el.innerHTML = items.map(d => '<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>' + escapeHtml(d.reason || "—") + '</b><div class="detail-q">' + escapeHtml(d.rawTitle || "") + '</div></div>').join("");
+}
+
+function renderAll() {
+  renderRuns(); renderKpis(); renderSev(); renderRules(); renderFindings(); renderSuppressed(); renderDiscarded();
+}
+
+// ---- detail / modals ----
+function openDetail(f) {
+  const loc = f.anchor ? (escapeHtml(f.anchor.path) + (f.anchor.line ? ":" + f.anchor.line : "") + (f.anchor.anchored ? "" : " (fallback: " + escapeHtml(f.anchor.fallbackReason || "unanchored") + ")")) : "—";
+  let html = '<h3><span class="sev-badge sev-' + f.severity + '">' + SEV_LABEL[f.severity] + '</span> ' + escapeHtml(f.title) + '</h3>';
+  html += '<div class="detail-q">规则 <code>' + escapeHtml(f.ruleId || "—") + '</code> · 置信度 ' + (f.confidence != null ? f.confidence.toFixed(2) : "—") + ' · 来源 ' + escapeHtml(f.runName || "—") + '</div>';
+  html += '<p>' + escapeHtml(f.body || "") + '</p>';
+  if (f.failureScenario) html += '<p><b>失败场景：</b> ' + escapeHtml(f.failureScenario) + '</p>';
+  html += '<p class="detail-q">位置：' + loc + '</p>';
+  if (f.patch && f.patch.diff) html += '<pre>' + escapeHtml(f.patch.diff) + '</pre>';
+  html += '<div class="row" style="justify-content:flex-end"><button class="btn" data-close>关闭</button></div>';
+  document.getElementById("detailContent").innerHTML = html;
+  showModal("detailModal");
+}
+
+function showModal(id) { document.getElementById(id).classList.add("show"); }
+function hideModal(id) { document.getElementById(id).classList.remove("show"); }
+
+// ---- export config ----
+function buildYaml() {
+  const minSev = document.getElementById("sMinSev").value;
+  const timeout = document.getElementById("sTimeout").value || "25";
+  const allowWrite = document.getElementById("sAllowWrite").checked;
+  const runTests = document.getElementById("sRunTests").checked;
+  const testCmds = document.getElementById("sTestCmds").value.trim().replace(/'/g, "");
+  const rulePacks = document.getElementById("sRulePacks").value.trim().replace(/'/g, "");
+  const lines = [];
+  lines.push("name: DSHRB review");
+  lines.push("");
+  lines.push("on:");
+  lines.push("  pull_request_target:");
+  lines.push("    types: [opened, synchronize, reopened]");
+  lines.push("");
+  lines.push("permissions:");
+  lines.push("  contents: read");
+  lines.push("  pull-requests: write");
+  lines.push("");
+  lines.push("jobs:");
+  lines.push("  review:");
+  lines.push("    runs-on: ubuntu-latest");
+  lines.push("    timeout-minutes: " + (Number(timeout) + 5));
+  lines.push("    steps:");
+  lines.push("      - uses: actions/checkout@v4");
+  lines.push("        with:");
+  lines.push("          ref: ${{ github.event.pull_request.base.sha }}");
+  lines.push("          persist-credentials: false");
+  lines.push("          fetch-depth: 1");
+  lines.push("");
+  lines.push("      - id: review");
+  lines.push("        uses: chaojixinren/dsh-reviewer-bot@v1");
+  lines.push("        with:");
+  lines.push("          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}");
+  lines.push("          min-severity: " + minSev);
+  lines.push("          timeout-minutes: " + timeout);
+  if (allowWrite) lines.push("          allow-write: 'true'");
+  if (runTests) lines.push("          run-tests: 'true'");
+  if (testCmds) lines.push("          test-commands: '" + testCmds + "'");
+  if (rulePacks) lines.push("          rule-packs: '" + rulePacks + "'");
+  lines.push("");
+  // safe artifact upload of the official result-json output (untrusted value via env, never shell)
+  lines.push("      - name: Save result-json");
+  lines.push("        if: always()");
+  lines.push("        run: node -e \"require('fs').writeFileSync('result-json.json', process.env.DSHRB_RESULT_JSON || '{}')\"");
+  lines.push("        env:");
+  lines.push("          DSHRB_RESULT_JSON: ${{ steps.review.outputs.result-json }}");
+  lines.push("      - name: Upload result-json");
+  lines.push("        if: always()");
+  lines.push("        uses: actions/upload-artifact@v4");
+  lines.push("        with:");
+  lines.push("          name: dsh-result-json");
+  lines.push("          path: result-json.json");
+  return lines.join("\n") + "\n";
+}
+function refreshYaml() { document.getElementById("yamlOut").textContent = buildYaml(); }
+
+// ---- helpers ----
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function shortName(n) { if (!n) return "run"; const m = String(n).match(/pull\/(\d+)$/); return m ? "PR #" + m[1] : String(n).slice(0, 48); }
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1800); }
+
+// ---- events ----
+document.getElementById("btnTheme").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme", cur === "light" ? "dark" : "light");
+});
+document.getElementById("btnOpen").addEventListener("click", () => document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  let n = 0;
+  for (const f of files) {
+    try { n += loadRawObjects(await f.text(), f.name); } catch (err) { toast("文件 " + f.name + "：" + err.message); }
+  }
+  if (n) { toast("已载入 " + n + " 个运行"); renderAll(); }
+  e.target.value = "";
+});
+document.getElementById("btnPaste").addEventListener("click", () => showModal("pasteModal"));
+document.getElementById("btnPasteOk").addEventListener("click", () => {
+  const txt = document.getElementById("pasteArea").value;
+  try { const n = loadRawObjects(txt, "pasted"); if (n) { toast("已载入 " + n + " 个运行"); renderAll(); hideModal("pasteModal"); } }
+  catch (err) { toast(err.message); }
+});
+document.getElementById("btnUrl").addEventListener("click", async () => {
+  const url = document.getElementById("urlInput").value.trim();
+  if (!url) { toast("请先填写 URL"); return; }
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const n = loadRawObjects(await res.text(), url.split("/").pop());
+    if (n) { toast("已载入 " + n + " 个运行"); renderAll(); }
+  } catch (err) { toast("载入失败：" + err.message); }
+});
+document.getElementById("btnSample").addEventListener("click", () => {
+  let n = 0; SAMPLES.forEach((s, i) => { try { n += loadRawObjects(JSON.stringify(s), "sample-" + i); } catch (e) {} });
+  if (n) { toast("已载入 " + n + " 个示例运行"); renderAll(); }
+});
+document.getElementById("btnClear").addEventListener("click", () => { state.runs = []; state.selected = "ALL"; renderAll(); });
+document.getElementById("fMinSev").addEventListener("change", (e) => { state.filters.minSeverity = e.target.value; renderSev(); renderRules(); renderFindings(); });
+document.getElementById("fRule").addEventListener("change", (e) => { state.filters.rule = e.target.value; renderFindings(); });
+document.getElementById("fQuery").addEventListener("input", (e) => { state.filters.q = e.target.value; renderFindings(); });
+document.getElementById("toggleSuppressed").addEventListener("click", () => { const b = document.getElementById("suppressedBody"); b.style.display = b.style.display === "none" ? "block" : "none"; });
+document.getElementById("toggleDiscarded").addEventListener("click", () => { const b = document.getElementById("discardedBody"); b.style.display = b.style.display === "none" ? "block" : "none"; });
+document.getElementById("btnSettings").addEventListener("click", () => { refreshYaml(); showModal("settingsModal"); });
+["sMinSev","sTimeout","sAllowWrite","sRunTests","sTestCmds","sRulePacks"].forEach(id => document.getElementById(id).addEventListener("input", refreshYaml));
+document.getElementById("btnCopyYaml").addEventListener("click", () => { navigator.clipboard.writeText(buildYaml()).then(() => toast("已复制")); });
+document.getElementById("btnDownloadYaml").addEventListener("click", () => {
+  const blob = new Blob([buildYaml()], { type: "text/yaml" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "review.yml"; a.click();
+});
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", (e) => { e.target.closest(".modal-bg").classList.remove("show"); }));
+document.querySelectorAll(".modal-bg").forEach(m => m.addEventListener("click", (e) => { if (e.target === m) m.classList.remove("show"); }));
+
+// expose for tests
+window.__viewer = { state, normalizeRun, loadRawObjects, scopeFindings, buildYaml, renderAll };
+</script>
+</body>
+</html>

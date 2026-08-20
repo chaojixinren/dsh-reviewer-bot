@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "replayId": "snap-ghi789",
+  "createdAt": 1700000000000,
+  "requestId": "snapshot-request",
+  "bounded": {
+    "request": { "requestId": "snapshot-request" },
+    "shards": [],
+    "rules": [
+      { "id": "correctness/null-undefined", "version": "1.2.0", "title": "Null & undefined safety" }
+    ],
+    "memory": []
+  },
+  "findings": [
+    {
+      "findingId": "f-s1",
+      "severity": "major",
+      "title": "Null dereference on optional config",
+      "body": "config may be undefined when the flag is off.",
+      "ruleId": "correctness/null-undefined",
+      "anchor": { "path": "src/config.ts", "line": 30, "side": "right", "anchored": true }
+    },
+    {
+      "findingId": "f-s2",
+      "severity": "info",
+      "title": "Consider extracting helper",
+      "body": "This block repeats in three places.",
+      "ruleId": "maintainability/dry",
+      "anchor": { "path": "src/config.ts", "line": 55, "side": "right", "anchored": true }
+    }
+  ],
+  "discarded": [
+    { "reason": "invalid-patch", "rawTitle": "apply unsafe diff" }
+  ]
+}

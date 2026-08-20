@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "status": "neutral",
+  "timing": { "durationMs": 9120, "ingestMs": 802, "reviewMs": 7600, "publishMs": 718 },
+  "policy": { "trustLevel": "untrusted", "capabilities": ["review"] },
+  "operation": "review",
+  "forge": "github",
+  "isolation": null,
+  "findings": {
+    "items": [],
+    "discarded": [],
+    "suppressed": []
+  },
+  "publication": { "published": 0, "downgraded": 0, "failed": 0 },
+  "validation": null,
+  "write": { "appliedPatches": 0, "commitSha": null, "pullRequestUrl": null },
+  "rules": [
+    { "id": "correctness/null-undefined", "version": "1.2.0", "title": "Null & undefined safety" },
+    { "id": "style/quotes", "version": "1.0.0", "title": "Quote style" }
+  ],
+  "failure": null,
+  "replay": "snap-def456"
+}
