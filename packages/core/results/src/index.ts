@@ -212,7 +212,7 @@ export function normalizeEnvelope(raw: unknown): ReviewRun {
   const itemViews = items.map(toFindingView)
   const suppressedViews = suppressed.map(toFindingView)
   const discardedViews = discarded.map(toFindingView)
-  const { bySeverity, byRule, blockers } = summarize(itemViews)
+  const { bySeverity, byRule } = summarize(itemViews)
 
   const policy = (e.policy ?? {}) as Record<string, unknown>
   const write = e.write as Record<string, unknown> | undefined
@@ -261,7 +261,7 @@ export function normalizeEnvelope(raw: unknown): ReviewRun {
   if (Array.isArray(e.rules)) run.rules = e.rules
   if (e.timing !== undefined && typeof e.timing === 'object') {
     const t = e.timing as Record<string, unknown>
-    run.timing = { ...(typeof t.durationMs === 'number' ? { durationMs: t.durationMs } : {}) }
+    run.timing = typeof t.durationMs === 'number' ? { durationMs: t.durationMs } : {}
   }
   return run
 }
@@ -290,7 +290,7 @@ function createService(maxRuns: number): DshrbResultsService {
         blockers: run.summary.bySeverity.blocker ?? 0,
         suppressed: run.summary.suppressed,
         discarded: run.summary.discarded,
-        writeRequested: run.write !== undefined,
+        writeRequested: run.write !== undefined && (typeof run.write.commitSha === 'string' || typeof run.write.pullRequestUrl === 'string'),
         ...(run.failure ? { failureCode: run.failure.code } : {}),
       })
     }
