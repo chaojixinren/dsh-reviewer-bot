@@ -80,7 +80,7 @@ window.__ModuleLoader__.load({
           method: 'clearResults',
           invocation: { kind: 'direct' },
           parameters: [
-            { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string', schema: passthrough } },
+            { name: 'id', wire: 'id', source: 'json', codec: { mode: 'strict', typeSymbol: 'string | undefined', schema: passthrough } },
           ],
           result: { mode: 'strict', typeSymbol: '@dshrb/results/types#ClearResult', schema: passthrough },
         },
