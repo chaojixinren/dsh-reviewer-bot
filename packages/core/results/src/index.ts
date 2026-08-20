@@ -374,7 +374,18 @@ class DshrbResultsGateway extends TypertRemoteService {
 }
 
 export function apply(ctx: Context, config: ResultsConfig = {}): void {
-  const maxRuns = typeof config.maxRuns === 'number' && config.maxRuns > 0 ? Math.floor(config.maxRuns) : 50
+  // Resolve through the exported `Config` schema so the plugin config contract
+  // and the runtime default live in exactly one place (the schema above). The
+  // framework normally resolves this; doing it here keeps `apply` and `Config`
+  // in agreement instead of leaving a dead, divergent schema. Falls back to the
+  // raw config if the schema is not directly callable in this runtime.
+  let resolved: ResultsConfig
+  try {
+    resolved = (Config as unknown as (c: ResultsConfig) => ResultsConfig)(config)
+  } catch {
+    resolved = config
+  }
+  const maxRuns = typeof resolved.maxRuns === 'number' && resolved.maxRuns > 0 ? Math.floor(resolved.maxRuns) : 50
   const service = createService(maxRuns)
   ctx.provide('results', service)
   // Browser Remote. `new` registers the Service (and its Typert binding) under
