@@ -152,6 +152,64 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.findings[3]!.title).toBe('')
   })
 
+  it('replay branch also reads object-form findings, not just a flat array', () => {
+    const run = normalizeEnvelope({
+      version: 7,
+      status: 'neutral',
+      findings: {
+        items: [{ findingId: 'r1', severity: 'major', title: 'T', anchor: { path: 'p.ts', line: 1, side: 'right', anchored: true } }],
+        discarded: [{ findingId: 'd1', severity: 'info', title: 'D', anchor: { path: 'q.ts', line: 2, side: 'right', anchored: false } }],
+        suppressed: [],
+      },
+    })
+    expect(run.schemaVersion).toBe(0)
+    expect(run.summary.total).toBe(1)
+    expect(run.summary.discarded).toBe(1)
+    expect(run.findings).toHaveLength(1)
+    expect(run.discarded).toHaveLength(1)
+    expect(run.suppressed).toHaveLength(0)
+  })
+
+  it('leaves failure undefined when the envelope carries a non-object failure', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'success',
+      findings: { items: [{ severity: 'info', title: 'T' }] },
+      failure: 'boom', // non-object failure must be ignored, never crash
+    })
+    expect(run.failure).toBeUndefined()
+  })
+
+  it('tolerates a timing object with no numeric durationMs', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'success',
+      findings: { items: [{ severity: 'info', title: 'T' }] },
+      timing: {},
+    })
+    expect(run.timing).toEqual({})
+  })
+
+  it('coerces a non-string replay token to null', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'success',
+      findings: { items: [{ severity: 'info', title: 'T' }] },
+      replay: 123,
+    })
+    expect(run.replay).toBeNull()
+  })
+
+  it('counts appliedPatches when supplied as an array', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'success',
+      findings: { items: [{ severity: 'info', title: 'T' }] },
+      write: { appliedPatches: ['p1', 'p2'], commitSha: 'sha', pullRequestUrl: 'url' },
+    })
+    expect(run.write!.appliedPatches).toBe(2)
+  })
+
   it('throws on an unrecognizable envelope', () => {
     expect(() => normalizeEnvelope({ hello: 'world' })).toThrow()
     expect(() => normalizeEnvelope(null)).toThrow()
@@ -211,14 +269,16 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(() => gateway.submitResult({ not: 'a result' })).toThrow()
   })
 
-  it('evicts the oldest run past maxRuns', () => {
+  it('evicts the oldest run past maxRuns, keeping the newest', () => {
     const root = new Context()
     apply(root, { maxRuns: 2 })
     const a = root.results.ingest({ schemaVersion: 1, status: 'neutral', findings: { items: [] } })
-    root.results.ingest({ schemaVersion: 1, status: 'neutral', findings: { items: [] } })
-    root.results.ingest({ schemaVersion: 1, status: 'neutral', findings: { items: [] } })
+    const b = root.results.ingest({ schemaVersion: 1, status: 'neutral', findings: { items: [] } })
+    const c = root.results.ingest({ schemaVersion: 1, status: 'neutral', findings: { items: [] } })
     const ids = root.results.list().map((r) => r.id)
     expect(ids).toHaveLength(2)
+    // list() is newest-first, so the two retained runs must be the newest.
+    expect(ids).toEqual([c.id, b.id])
     expect(ids).not.toContain(a.id)
   })
 
