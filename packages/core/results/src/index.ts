@@ -183,7 +183,7 @@ export function normalizeEnvelope(raw: unknown): ReviewRun {
   let status: string
 
   const findings = e.findings
-  if (typeof e.schemaVersion === 'number' && findings !== undefined && typeof findings === 'object' && !Array.isArray(findings)) {
+  if (typeof e.schemaVersion === 'number' && findings != null && typeof findings === 'object' && !Array.isArray(findings)) {
     // Current `result-json` envelope (driver-action#buildResultJson).
     const f = findings as Record<string, unknown>
     items = asArray(f.items)
@@ -272,7 +272,14 @@ function createService(maxRuns: number): DshrbResultsService {
 
   function notify() {
     const list = toSummaries()
-    for (const cb of watchers) void cb(list)
+    for (const cb of watchers) {
+      try {
+        void Promise.resolve(cb(list)).catch(() => {})
+      } catch {
+        // A watcher threw synchronously; ignore so one bad subscriber can't
+        // break notification for the rest.
+      }
+    }
   }
 
   function toSummaries(): ReviewRunSummary[] {
