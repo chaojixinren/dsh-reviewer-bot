@@ -154,16 +154,16 @@ function toFindingView(raw: unknown): FindingView {
 }
 
 function summarize(findings: FindingView[]) {
-  const bySeverity: Record<string, number> = {}
-  const byRule: Record<string, number> = {}
-  let blockers = 0
+  // `Object.create(null)` so untrusted ruleId values (e.g. "constructor",
+  // "__proto__") can't collide with Object.prototype keys.
+  const bySeverity: Record<string, number> = Object.create(null)
+  const byRule: Record<string, number> = Object.create(null)
   for (const f of findings) {
     bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1
-    if (f.severity === 'blocker') blockers += 1
     const rule = f.ruleId ?? 'untagged'
     byRule[rule] = (byRule[rule] ?? 0) + 1
   }
-  return { bySeverity, byRule, blockers }
+  return { bySeverity, byRule }
 }
 
 /**
