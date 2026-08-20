@@ -83,6 +83,42 @@ describe('@dshrb/results review-results store + browser remote', () => {
     expect(run.findings).toHaveLength(2)
   })
 
+  it('normalizes failure/write/replay/rules and tolerates timing: null', () => {
+    const run = normalizeEnvelope({
+      schemaVersion: 1,
+      status: 'failure',
+      operation: 'review',
+      forge: 'github',
+      findings: {
+        items: [
+          { findingId: 'f1', severity: 'blocker', title: 'Boom', anchor: { path: 'a.ts', line: 1, side: 'right', anchored: true } },
+        ],
+        discarded: [],
+        suppressed: [],
+      },
+      write: { appliedPatches: 2, commitSha: 'abc123', pullRequestUrl: 'https://github.com/x/y/pull/1' },
+      failure: { code: 'review-failed', phase: 'analyze', title: 'Review failed', message: 'see logs', guidance: 'retry', retryable: true },
+      replay: 'run-42',
+      rules: [{ id: 'r1' }],
+      timing: null,
+    })
+    expect(run.status).toBe('failure')
+    expect(run.operation).toBe('review')
+    expect(run.forge).toBe('github')
+    expect(run.write).toBeDefined()
+    expect(run.write!.appliedPatches).toBe(2)
+    expect(run.write!.commitSha).toBe('abc123')
+    expect(run.write!.pullRequestUrl).toBe('https://github.com/x/y/pull/1')
+    expect(run.failure).toBeDefined()
+    expect(run.failure!.code).toBe('review-failed')
+    expect(run.failure!.retryable).toBe(true)
+    expect(run.replay).toBe('run-42')
+    expect(run.rules).toEqual([{ id: 'r1' }])
+    // `timing: null` must be tolerated (typeof null === 'object') and left unset.
+    expect(run.timing).toBeUndefined()
+    expect(run.summary.total).toBe(1)
+  })
+
   it('throws on an unrecognizable envelope', () => {
     expect(() => normalizeEnvelope({ hello: 'world' })).toThrow()
     expect(() => normalizeEnvelope(null)).toThrow()
