@@ -259,7 +259,7 @@ export function normalizeEnvelope(raw: unknown): ReviewRun {
   }
   if (e.replay !== undefined) run.replay = typeof e.replay === 'string' ? e.replay : null
   if (Array.isArray(e.rules)) run.rules = e.rules
-  if (e.timing !== undefined && typeof e.timing === 'object') {
+  if (e.timing != null && typeof e.timing === 'object') {
     const t = e.timing as Record<string, unknown>
     run.timing = typeof t.durationMs === 'number' ? { durationMs: t.durationMs } : {}
   }
