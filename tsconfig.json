@@ -2,22 +2,59 @@
   "extends": "./tsconfig.base.json",
   "files": [],
   "references": [
-    { "path": "./packages/core/review-core" },
-    { "path": "./packages/core/config" },
-    { "path": "./packages/core/forge" },
-    { "path": "./packages/core/trust-policy" },
-    { "path": "./packages/core/rule-registry" },
-    { "path": "./packages/core/review-runtime" },
-    { "path": "./packages/core/progress" },
-    { "path": "./packages/core/runtime-bootstrap" },
-    { "path": "./packages/forge/forge-github" },
-    { "path": "./packages/forge/forge-gitlab" },
-    { "path": "./packages/forge/forge-local" },
-    { "path": "./packages/tools/tool-review" },
-    { "path": "./packages/rules/rules-baseline" },
-    { "path": "./packages/drivers/driver-action" },
-    { "path": "./packages/drivers/driver-webhook" },
-    { "path": "./packages/drivers/driver-cli" },
-    { "path": "./packages/probe/signature-probe" }
+    {
+      "path": "./packages/core/review-core"
+    },
+    {
+      "path": "./packages/core/config"
+    },
+    {
+      "path": "./packages/core/forge"
+    },
+    {
+      "path": "./packages/core/trust-policy"
+    },
+    {
+      "path": "./packages/core/rule-registry"
+    },
+    {
+      "path": "./packages/core/review-runtime"
+    },
+    {
+      "path": "./packages/core/progress"
+    },
+    {
+      "path": "./packages/core/results"
+    },
+    {
+      "path": "./packages/core/runtime-bootstrap"
+    },
+    {
+      "path": "./packages/forge/forge-github"
+    },
+    {
+      "path": "./packages/forge/forge-gitlab"
+    },
+    {
+      "path": "./packages/forge/forge-local"
+    },
+    {
+      "path": "./packages/tools/tool-review"
+    },
+    {
+      "path": "./packages/rules/rules-baseline"
+    },
+    {
+      "path": "./packages/drivers/driver-action"
+    },
+    {
+      "path": "./packages/drivers/driver-webhook"
+    },
+    {
+      "path": "./packages/drivers/driver-cli"
+    },
+    {
+      "path": "./packages/probe/signature-probe"
+    }
   ]
 }

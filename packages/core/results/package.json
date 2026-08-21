@@ -1,0 +1,53 @@
+{
+  "name": "@dshrb/results",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DSH WebUI results panel: view and ingest dshrb review result-json in the Web UI.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chaojixinren/dsh-reviewer-bot.git",
+    "directory": "packages/core/results"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./client.js",
+    "./typert": "./lib/typert.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.6"
+  }
+}
